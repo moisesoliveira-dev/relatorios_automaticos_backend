@@ -53,7 +53,7 @@ import { Setting } from './settings/entities/setting.entity';
           console.log('Host:', config.host);
           console.log('Port:', config.port);
           console.log('Username:', config.username);
-          console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
+          console.log('Password:', config.password);
           console.log('Database:', config.database);
           console.log('======================');
           return config;
