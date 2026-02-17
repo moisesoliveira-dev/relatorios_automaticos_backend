@@ -33,21 +33,33 @@ import { Setting } from './settings/entities/setting.entity';
           logging: false,
         };
 
+        console.log('=== DATABASE CONFIG ===');
+        console.log('DATABASE_URL presente:', !!databaseUrl);
+        console.log('DATABASE_URL raw:', databaseUrl ?? '(não definida)');
+
         if (databaseUrl) {
           // Parseia a URL manualmente para evitar problemas com o driver pg
           const parsed = new URL(databaseUrl);
-          return {
+          const config = {
             ...baseConfig,
             host: parsed.hostname,
             port: parseInt(parsed.port, 10) || 5432,
             username: decodeURIComponent(parsed.username),
             password: decodeURIComponent(parsed.password),
             database: parsed.pathname.replace(/^\//, ''),
-            ssl: { rejectUnauthorized: false }, // Necessário no Railway
+            ssl: { rejectUnauthorized: false },
           };
+          console.log('Modo: DATABASE_URL');
+          console.log('Host:', config.host);
+          console.log('Port:', config.port);
+          console.log('Username:', config.username);
+          console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
+          console.log('Database:', config.database);
+          console.log('======================');
+          return config;
         }
 
-        return {
+        const config = {
           ...baseConfig,
           host: configService.get<string>('DB_HOST', 'localhost'),
           port: configService.get<number>('DB_PORT', 5432),
@@ -55,6 +67,14 @@ import { Setting } from './settings/entities/setting.entity';
           password: configService.get<string>('DB_PASSWORD', 'postgres123'),
           database: configService.get<string>('DB_DATABASE', 'relatorios_db'),
         };
+        console.log('Modo: variáveis individuais');
+        console.log('Host:', config.host);
+        console.log('Port:', config.port);
+        console.log('Username:', config.username);
+        console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
+        console.log('Database:', config.database);
+        console.log('======================');
+        return config;
       },
       inject: [ConfigService],
     }),
