@@ -15,14 +15,23 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Habilita CORS para o frontend
+  // Em produção, defina FRONTEND_URL com a URL do seu frontend no Railway
+  const allowedOrigins = [
+    'http://localhost:4200',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean);
+
   app.enableCors({
-    origin: ['http://localhost:4200', 'http://localhost:3000'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
 
-  await app.listen(process.env.PORT ?? 3000);
-  console.log(`🚀 Servidor rodando em http://localhost:${process.env.PORT ?? 3000}`);
-  console.log(`📚 API disponível em http://localhost:${process.env.PORT ?? 3000}/api`);
+  const port = process.env.PORT ?? 3000;
+  // Escuta em 0.0.0.0 para funcionar dentro de containers
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Servidor rodando na porta ${port}`);
+  console.log(`📚 API disponível em /api`);
 }
 bootstrap();

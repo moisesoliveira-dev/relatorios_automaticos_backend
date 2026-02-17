@@ -23,17 +23,33 @@ import { Setting } from './settings/entities/setting.entity';
     ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST', 'localhost'),
-        port: configService.get('DB_PORT', 5432),
-        username: configService.get('DB_USERNAME', 'postgres'),
-        password: configService.get('DB_PASSWORD', 'postgres123'),
-        database: configService.get('DB_DATABASE', 'relatorios_db'),
-        entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting],
-        synchronize: true, // Apenas em desenvolvimento
-        logging: false,
-      }),
+      useFactory: (configService: ConfigService) => {
+        // Railway fornece DATABASE_URL automaticamente ao adicionar o plugin PostgreSQL
+        const databaseUrl = configService.get<string>('DATABASE_URL');
+        const baseConfig = {
+          type: 'postgres' as const,
+          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting],
+          synchronize: true,
+          logging: false,
+        };
+
+        if (databaseUrl) {
+          return {
+            ...baseConfig,
+            url: databaseUrl,
+            ssl: { rejectUnauthorized: false }, // Necessário no Railway
+          };
+        }
+
+        return {
+          ...baseConfig,
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'postgres123'),
+          database: configService.get<string>('DB_DATABASE', 'relatorios_db'),
+        };
+      },
       inject: [ConfigService],
     }),
     AuthModule,
