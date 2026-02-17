@@ -34,9 +34,15 @@ import { Setting } from './settings/entities/setting.entity';
         };
 
         if (databaseUrl) {
+          // Parseia a URL manualmente para evitar problemas com o driver pg
+          const parsed = new URL(databaseUrl);
           return {
             ...baseConfig,
-            url: databaseUrl,
+            host: parsed.hostname,
+            port: parseInt(parsed.port, 10) || 5432,
+            username: decodeURIComponent(parsed.username),
+            password: decodeURIComponent(parsed.password),
+            database: parsed.pathname.replace(/^\//, ''),
             ssl: { rejectUnauthorized: false }, // Necessário no Railway
           };
         }
