@@ -73,9 +73,12 @@ export class GosacService {
             console.log(`✅ GOSAC retornou:`, JSON.stringify(data).substring(0, 500));
 
             // A API pode retornar { tickets: [...] } ou diretamente um array
-            const tickets: GosacTicket[] = Array.isArray(data)
+            const allTickets: GosacTicket[] = Array.isArray(data)
                 ? data
                 : (data?.tickets || []);
+
+            // Filtra apenas grupos (isGroup === true)
+            const tickets = allTickets.filter(t => t.isGroup === true);
 
             return tickets;
         } catch (error) {

@@ -15,6 +15,10 @@ export class GosacGroup {
     @Column({ type: 'int', unique: true })
     gosacTicketId: number;
 
+    /** ID do contato no GOSAC */
+    @Column({ type: 'int', default: 0 })
+    gosacContactId: number;
+
     /** Nome do ticket/grupo no GOSAC */
     @Column()
     gosacTicketName: string;
