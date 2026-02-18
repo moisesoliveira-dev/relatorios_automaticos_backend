@@ -27,6 +27,9 @@ export class EmailService {
                 user: this.configService.get<string>('SMTP_USER'),
                 pass: this.configService.get<string>('SMTP_PASS'),
             },
+            connectionTimeout: 30000,  // 30s para conectar ao SMTP
+            greetingTimeout: 30000,    // 30s para o EHLO/HELO
+            socketTimeout: 240000,     // 4 min para o envio completo
         });
     }
 
