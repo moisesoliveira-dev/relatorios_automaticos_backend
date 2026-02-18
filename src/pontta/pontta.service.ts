@@ -102,24 +102,52 @@ export class PonttaService {
         token: string,
         status: string = 'NEW,OPEN,PENDING,WAITING,IN_PROGRESS,RESOLVED',
     ): Promise<OccurrenceSummary[]> {
-        const allOccurrences: OccurrenceSummary[] = [];
-        let page = 0;
         const size = 100;
+
+        // 1ª página para descobrir quantos registros existem no total
+        const firstPage = await this.getOccurrences(token, 0, size, status);
+
+        if (!Array.isArray(firstPage) || firstPage.length === 0) {
+            return [];
+        }
+
+        // Se retornou menos que o tamanho da página, não há mais páginas
+        if (firstPage.length < size) {
+            return firstPage;
+        }
+
+        // Busca as demais páginas em paralelo (máximo 10 simultâneas para não sobrecarregar a API)
+        const CONCURRENCY = 10;
+        const allOccurrences: OccurrenceSummary[] = [...firstPage];
+        let page = 1;
         let hasMore = true;
 
         while (hasMore) {
-            const occurrences = await this.getOccurrences(token, page, size, status);
+            const pages = Array.from({ length: CONCURRENCY }, (_, i) => page + i);
+            const results = await Promise.all(
+                pages.map(p => this.getOccurrences(token, p, size, status).catch(() => [] as OccurrenceSummary[]))
+            );
 
-            if (Array.isArray(occurrences) && occurrences.length > 0) {
-                allOccurrences.push(...occurrences);
-                page++;
-
-                if (occurrences.length < size) {
+            let gotAny = false;
+            for (const result of results) {
+                if (Array.isArray(result) && result.length > 0) {
+                    allOccurrences.push(...result);
+                    gotAny = true;
+                    if (result.length < size) {
+                        hasMore = false;
+                        break;
+                    }
+                } else {
                     hasMore = false;
+                    break;
                 }
-            } else {
+            }
+
+            if (!gotAny) {
                 hasMore = false;
             }
+
+            page += CONCURRENCY;
         }
 
         return allOccurrences;
