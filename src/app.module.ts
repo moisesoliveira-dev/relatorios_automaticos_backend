@@ -9,8 +9,10 @@ import { ReportModule } from './report/report.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
+import { GosacModule } from './gosac/gosac.module';
 import { User } from './users/entities/user.entity';
 import { Report, ReportEmail, ReportExecution } from './report/entities/report.entity';
+import { GosacGroup } from './gosac/entities/gosac-group.entity';
 import { DashboardMetric, SystemLog } from './report/entities/dashboard.entity';
 import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
@@ -28,7 +30,7 @@ import { Setting } from './settings/entities/setting.entity';
         const databaseUrl = configService.get<string>('DATABASE_URL');
         const baseConfig = {
           type: 'postgres' as const,
-          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting],
+          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup],
           synchronize: true,
           logging: false,
         };
@@ -82,6 +84,7 @@ import { Setting } from './settings/entities/setting.entity';
     UsersModule,
     SettingsModule,
     ReportModule,
+    GosacModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppInitService],
