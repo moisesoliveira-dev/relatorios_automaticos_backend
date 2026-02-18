@@ -14,7 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 import { GosacService } from './gosac.service';
-import { CreateGosacGroupDto, UpdateGosacGroupDto } from './dto/gosac.dto';
+import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './dto/gosac.dto';
 
 @Controller('gosac')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -87,5 +87,41 @@ export class GosacController {
     @Delete('groups/:id')
     async deleteGroup(@Param('id') id: string) {
         return this.gosacService.deleteGroup(id);
+    }
+
+    // ===== Pedidos de Venda Pontta =====
+
+    /**
+     * GET /api/gosac/sales-orders/search?q=IGOR
+     * Pesquisa pedidos de venda no Pontta
+     */
+    @Get('sales-orders/search')
+    async searchSalesOrders(@Query('q') q: string) {
+        if (!q || q.trim().length === 0) {
+            return [];
+        }
+        return this.gosacService.searchSalesOrders(q);
+    }
+
+    /**
+     * POST /api/gosac/groups/:id/sales-orders
+     * Associa um pedido de venda a um grupo
+     */
+    @Post('groups/:id/sales-orders')
+    async linkSalesOrder(@Param('id') id: string, @Body() dto: LinkSalesOrderDto) {
+        return this.gosacService.linkSalesOrder(id, dto.ponttaId, dto.code, dto.customerName);
+    }
+
+    /**
+     * DELETE /api/gosac/groups/:groupId/sales-orders/:salesOrderId
+     * Remove associação entre pedido de venda e grupo
+     */
+    @Delete('groups/:groupId/sales-orders/:salesOrderId')
+    async unlinkSalesOrder(
+        @Param('groupId') groupId: string,
+        @Param('salesOrderId') salesOrderId: string,
+    ) {
+        await this.gosacService.unlinkSalesOrder(groupId, salesOrderId);
+        return { success: true };
     }
 }

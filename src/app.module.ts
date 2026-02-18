@@ -13,6 +13,8 @@ import { GosacModule } from './gosac/gosac.module';
 import { User } from './users/entities/user.entity';
 import { Report, ReportEmail, ReportExecution } from './report/entities/report.entity';
 import { GosacGroup } from './gosac/entities/gosac-group.entity';
+import { PonttaSalesOrder } from './gosac/entities/pontta-sales-order.entity';
+import { GosacSalesOrderLink } from './gosac/entities/gosac-sales-order-link.entity';
 import { DashboardMetric, SystemLog } from './report/entities/dashboard.entity';
 import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
@@ -30,7 +32,7 @@ import { Setting } from './settings/entities/setting.entity';
         const databaseUrl = configService.get<string>('DATABASE_URL');
         const baseConfig = {
           type: 'postgres' as const,
-          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup],
+          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup, PonttaSalesOrder, GosacSalesOrderLink],
           synchronize: true,
           logging: false,
         };

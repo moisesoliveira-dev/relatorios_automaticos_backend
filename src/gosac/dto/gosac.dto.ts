@@ -14,26 +14,21 @@ export class CreateGosacGroupDto {
 
     @IsString()
     gosacTicketName: string;
-
-    @IsOptional()
-    @IsNumber()
-    ponttaOccurrenceId?: number;
-
-    @IsOptional()
-    @IsString()
-    ponttaOccurrenceName?: string;
 }
 
 export class UpdateGosacGroupDto {
     @IsOptional()
-    @IsNumber()
-    ponttaOccurrenceId?: number;
-
-    @IsOptional()
-    @IsString()
-    ponttaOccurrenceName?: string;
-
-    @IsOptional()
     @IsBoolean()
     isActive?: boolean;
+}
+
+export class LinkSalesOrderDto {
+    @IsString()
+    ponttaId: string;
+
+    @IsString()
+    code: string;
+
+    @IsString()
+    customerName: string;
 }

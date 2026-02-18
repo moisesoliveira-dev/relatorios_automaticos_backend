@@ -23,14 +23,6 @@ export class GosacGroup {
     @Column()
     gosacTicketName: string;
 
-    /** ID da ocorrência no Pontta */
-    @Column({ type: 'int', nullable: true })
-    ponttaOccurrenceId: number | null;
-
-    /** Nome/título da ocorrência no Pontta (para exibição) */
-    @Column({ type: 'varchar', nullable: true })
-    ponttaOccurrenceName: string | null;
-
     /** Indica se a associação está ativa */
     @Column({ default: true })
     isActive: boolean;
