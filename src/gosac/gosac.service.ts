@@ -48,8 +48,9 @@ export class GosacService {
     ) {
         this.gosacBaseUrl = this.configService.get<string>('GOSAC_BASE_URL') || 'https://cmmodulados.gosac.com.br';
         this.gosacApiKey = this.configService.get<string>('GOSAC_API_KEY') || 'your_gosac_api_key';
-        this.ponttaEmail = this.configService.get<string>('PONTTA_EMAIL') || '';
-        this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '';
+        this.ponttaEmail = this.configService.get<string>('PONTTA_EMAIL') || 'seu_email_pontta@example.com';
+        this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '***REMOVIDO***';
+        console.log(`[GosacService] ponttaEmail: "${this.ponttaEmail}", ponttaPassword definido: ${!!this.ponttaPassword}`);
     }
 
     /**
@@ -242,8 +243,11 @@ export class GosacService {
         await this.linkRepository.save(link);
 
         // Cria ocorrência no Pontta automaticamente
+        let occurrenceWarning: string | null = null;
         try {
+            console.log(`🔐 Autenticando no Pontta com email: ${this.ponttaEmail}`);
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+            console.log(`📝 Token obtido, criando ocorrência para PV ${code}...`);
             const occurrence = await this.ponttaService.createOccurrence(token, {
                 title: `Anexos GOSAC - ${group.gosacTicketName}`,
                 note: `Ocorrência criada automaticamente para receber anexos do grupo GOSAC "${group.gosacTicketName}" (Ticket #${group.gosacTicketId})`,
@@ -251,17 +255,18 @@ export class GosacService {
                 salesOrderId: ponttaId,
             });
 
-            // Persiste o ID da ocorrência no link
             // A API Pontta retorna apenas o UUID da ocorrência como string
             const occurrenceId = typeof occurrence === 'string' ? occurrence : (occurrence?.id ?? null);
             link.ponttaOccurrenceId = occurrenceId;
-            link.ponttaOccurrenceNumber = typeof occurrence === 'object' ? (occurrence?.number ?? occurrence?.occurrenceNumber ?? null) : null;
+            link.ponttaOccurrenceNumber = typeof occurrence === 'object'
+                ? (occurrence?.number ?? occurrence?.occurrenceNumber ?? null)
+                : null;
             await this.linkRepository.save(link);
 
             console.log(`✅ Ocorrência Pontta ${occurrenceId} criada para grupo "${group.gosacTicketName}"`);
         } catch (error) {
-            console.error(`⚠️ Não foi possível criar ocorrência no Pontta para grupo "${group.gosacTicketName}":`, error.message);
-            // Não falha o link — a ocorrência pode ser criada depois manualmente
+            occurrenceWarning = error?.response?.data?.message || error?.message || 'Erro desconhecido ao criar ocorrência';
+            console.error(`⚠️ Falha ao criar ocorrência no Pontta para grupo "${group.gosacTicketName}": ${occurrenceWarning}`);
         }
 
         // Retorna o salesOrder mesclado com os dados da ocorrência para o frontend usar diretamente
@@ -272,6 +277,7 @@ export class GosacService {
                 ponttaOccurrenceNumber: link.ponttaOccurrenceNumber ?? null,
             },
             link,
+            occurrenceWarning,
         };
     }
 
