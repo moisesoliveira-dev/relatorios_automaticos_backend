@@ -42,8 +42,9 @@ export class PonttaService {
     constructor(private configService: ConfigService) {
         this.authUrl = this.configService.get<string>('PONTTA_AUTH_URL') || 'https://api.pontta.com/api/authenticate';
         this.apiUrl = this.configService.get<string>('PONTTA_API_URL') || 'https://app.pontta.com/api';
-        this.apiKey = this.configService.get<string>('PONTTA_API_KEY') || '';
-        this.businessUnitId = this.configService.get<string>('PONTTA_BUSINESS_UNIT_ID') || '';
+        this.apiKey = this.configService.get<string>('PONTTA_API_KEY') || 'your_pontta_api_key';
+        this.businessUnitId = this.configService.get<string>('PONTTA_BUSINESS_UNIT_ID') || 'd6e8a1cd-ab55-4dd2-96cd-dbab38f75f2e';
+        console.log(`[PonttaService] businessUnitId: "${this.businessUnitId}"`);
     }
 
     async authenticate(email: string, password: string): Promise<string> {
@@ -217,7 +218,7 @@ export class PonttaService {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
-                    ...(this.businessUnitId ? { Businessunit: this.businessUnitId } : {}),
+                    Businessunit: this.businessUnitId,
                 },
             });
 
@@ -285,7 +286,7 @@ export class PonttaService {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
-                    ...(this.businessUnitId ? { Businessunit: this.businessUnitId } : {}),
+                    Businessunit: this.businessUnitId,
                 },
             });
 
@@ -323,7 +324,7 @@ export class PonttaService {
             const response = await axios.post(url, form, {
                 headers: {
                     Authorization: `Bearer ${token}`,
-                    ...(this.businessUnitId ? { Businessunit: this.businessUnitId } : {}),
+                    Businessunit: this.businessUnitId,
                     ...form.getHeaders(),
                 },
                 maxContentLength: Infinity,
