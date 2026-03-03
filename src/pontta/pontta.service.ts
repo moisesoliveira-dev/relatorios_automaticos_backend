@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import FormData from 'form-data';
 
 export interface OccurrenceSummary {
     id: number;
@@ -211,6 +212,100 @@ export class PonttaService {
             console.error('❌ Erro ao buscar pedidos de venda:', error.response?.data || error.message);
             throw new HttpException(
                 'Falha ao buscar pedidos de venda da API Pontta',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+    }
+
+    /**
+     * Cria uma ocorrência no Pontta associada a um pedido de venda
+     */
+    async createOccurrence(
+        token: string,
+        data: {
+            title: string;
+            note: string;
+            salesOrderCode: string;
+            salesOrderId: string;
+        },
+    ): Promise<any> {
+        try {
+            const url = `${this.apiUrl}/occurrences`;
+            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}`);
+            const response = await axios.post(url, {
+                id: null,
+                type: 'EXTERNAL',
+                occurrenceDate: null,
+                debitResponsible: false,
+                cost: null,
+                title: data.title,
+                note: data.note,
+                salesOrderCode: data.salesOrderCode,
+                salesOrderId: data.salesOrderId,
+                deadline: null,
+                occurrenceTypeId: null,
+                occurrenceTeamId: null,
+                responsibleId: null,
+                causedById: null,
+                reference: null,
+                contactExist: false,
+                contactId: null,
+                tagIds: [],
+            }, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...(this.businessUnitId ? { Businessunit: this.businessUnitId } : {}),
+                },
+            });
+
+            console.log(`✅ Ocorrência criada no Pontta:`, JSON.stringify(response.data).substring(0, 300));
+            return response.data;
+        } catch (error) {
+            console.error('❌ Erro ao criar ocorrência no Pontta:', error.response?.data || error.message);
+            throw new HttpException(
+                `Falha ao criar ocorrência no Pontta: ${error.response?.data?.message || error.message}`,
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+    }
+
+    /**
+     * Faz upload de um arquivo para uma ocorrência no Pontta
+     */
+    async uploadFileToOccurrence(
+        token: string,
+        occurrenceId: string,
+        fileBuffer: Buffer,
+        filename: string,
+        mimeType: string,
+    ): Promise<any> {
+        try {
+            const url = `${this.apiUrl}/file-storage/OCCURRENCE/${occurrenceId}`;
+            console.log(`📎 Enviando arquivo "${filename}" para ocorrência ${occurrenceId}`);
+
+            const form = new FormData();
+            form.append('file', fileBuffer, {
+                filename,
+                contentType: mimeType,
+            });
+
+            const response = await axios.post(url, form, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    ...(this.businessUnitId ? { Businessunit: this.businessUnitId } : {}),
+                    ...form.getHeaders(),
+                },
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+            });
+
+            console.log(`✅ Arquivo "${filename}" enviado com sucesso`);
+            return response.data;
+        } catch (error) {
+            console.error(`❌ Erro ao enviar arquivo "${filename}":`, error.response?.data || error.message);
+            throw new HttpException(
+                `Falha ao enviar arquivo para ocorrência Pontta: ${error.response?.data?.message || error.message}`,
                 HttpStatus.BAD_REQUEST,
             );
         }

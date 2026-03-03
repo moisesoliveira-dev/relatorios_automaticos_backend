@@ -22,6 +22,14 @@ export class GosacSalesOrderLink {
     @Column({ type: 'uuid' })
     salesOrderId: string;
 
+    /** ID da ocorrência criada no Pontta para esta associação */
+    @Column({ type: 'varchar', nullable: true })
+    ponttaOccurrenceId: string | null;
+
+    /** Número da ocorrência no Pontta (ex: 123) */
+    @Column({ type: 'int', nullable: true })
+    ponttaOccurrenceNumber: number | null;
+
     @ManyToOne(() => GosacGroup, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'gosacGroupId' })
     gosacGroup: GosacGroup;

@@ -109,8 +109,8 @@ export class GosacService {
             order: { createdAt: 'DESC' },
         });
 
-        // Carrega os links / pedidos de venda para cada grupo
-        const result: Array<GosacGroup & { salesOrders: PonttaSalesOrder[] }> = [];
+        // Carrega os links / pedidos de venda (+ dados da ocorrência) para cada grupo
+        const result: Array<GosacGroup & { salesOrders: any[] }> = [];
         for (const group of groups) {
             const links = await this.linkRepository.find({
                 where: { gosacGroupId: group.id },
@@ -118,7 +118,13 @@ export class GosacService {
             });
             result.push({
                 ...group,
-                salesOrders: links.map(l => l.salesOrder).filter(Boolean),
+                salesOrders: links
+                    .filter(l => l.salesOrder)
+                    .map(l => ({
+                        ...l.salesOrder,
+                        ponttaOccurrenceId: l.ponttaOccurrenceId ?? null,
+                        ponttaOccurrenceNumber: l.ponttaOccurrenceNumber ?? null,
+                    })),
             });
         }
 
@@ -188,11 +194,11 @@ export class GosacService {
 
     /**
      * Associa um pedido de venda a um grupo GOSAC.
-     * Salva o pedido na tabela de cache e cria o link.
+     * Salva o pedido na tabela de cache, cria o link e cria uma ocorrência no Pontta.
      */
     async linkSalesOrder(groupId: string, ponttaId: string, code: string, customerName: string) {
         // Garante que o grupo existe
-        await this.findGroupById(groupId);
+        const group = await this.findGroupById(groupId);
 
         // Upsert do pedido de venda no cache
         let salesOrder = await this.salesOrderRepository.findOne({ where: { ponttaId } });
@@ -220,7 +226,38 @@ export class GosacService {
         });
         await this.linkRepository.save(link);
 
-        return { salesOrder, link };
+        // Cria ocorrência no Pontta automaticamente
+        try {
+            const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+            const occurrence = await this.ponttaService.createOccurrence(token, {
+                title: `Anexos GOSAC - ${group.gosacTicketName}`,
+                note: `Ocorrência criada automaticamente para receber anexos do grupo GOSAC "${group.gosacTicketName}" (Ticket #${group.gosacTicketId})`,
+                salesOrderCode: code,
+                salesOrderId: ponttaId,
+            });
+
+            // Persiste o ID da ocorrência no link
+            // A API Pontta retorna apenas o UUID da ocorrência como string
+            const occurrenceId = typeof occurrence === 'string' ? occurrence : (occurrence?.id ?? null);
+            link.ponttaOccurrenceId = occurrenceId;
+            link.ponttaOccurrenceNumber = typeof occurrence === 'object' ? (occurrence?.number ?? occurrence?.occurrenceNumber ?? null) : null;
+            await this.linkRepository.save(link);
+
+            console.log(`✅ Ocorrência Pontta ${occurrenceId} criada para grupo "${group.gosacTicketName}"`);
+        } catch (error) {
+            console.error(`⚠️ Não foi possível criar ocorrência no Pontta para grupo "${group.gosacTicketName}":`, error.message);
+            // Não falha o link — a ocorrência pode ser criada depois manualmente
+        }
+
+        // Retorna o salesOrder mesclado com os dados da ocorrência para o frontend usar diretamente
+        return {
+            salesOrder: {
+                ...salesOrder,
+                ponttaOccurrenceId: link.ponttaOccurrenceId ?? null,
+                ponttaOccurrenceNumber: link.ponttaOccurrenceNumber ?? null,
+            },
+            link,
+        };
     }
 
     /**
@@ -245,5 +282,96 @@ export class GosacService {
             relations: ['salesOrder'],
         });
         return links.map(l => l.salesOrder).filter(Boolean);
+    }
+
+    /**
+     * Processa webhook do GOSAC.
+     * Quando uma mensagem contém mídia (imagem/arquivo), baixa o arquivo e envia para a ocorrência Pontta.
+     */
+    async handleWebhook(payload: any): Promise<{ status: string; message: string }> {
+        console.log('📨 Webhook GOSAC recebido:', JSON.stringify(payload).substring(0, 500));
+
+        // Extrai o ticketId do payload
+        const ticketId = payload?.ticket?.id || payload?.ticketId;
+        if (!ticketId) {
+            console.log('⚠️ Webhook sem ticketId, ignorando.');
+            return { status: 'ignored', message: 'Sem ticketId no payload' };
+        }
+
+        // Verifica se há mídia na mensagem
+        const mediaUrl = payload?.mediaUrl || payload?.message?.mediaUrl || payload?.body?.mediaUrl;
+        const mediaPath = payload?.mediaPath || payload?.message?.mediaPath || payload?.body?.mediaPath;
+        const mediaName = payload?.message?.body || payload?.body?.body || 'arquivo';
+
+        if (!mediaUrl && !mediaPath) {
+            console.log(`ℹ️ Webhook para ticket #${ticketId} sem mídia, ignorando.`);
+            return { status: 'ignored', message: 'Mensagem sem mídia' };
+        }
+
+        // Busca o grupo GOSAC associado a esse ticket
+        const group = await this.gosacGroupRepository.findOne({
+            where: { gosacTicketId: ticketId, isActive: true },
+        });
+        if (!group) {
+            console.log(`ℹ️ Ticket #${ticketId} não está associado a nenhum grupo ativo, ignorando.`);
+            return { status: 'ignored', message: `Ticket #${ticketId} sem grupo ativo` };
+        }
+
+        // Busca o link com a ocorrência Pontta
+        const link = await this.linkRepository.findOne({
+            where: { gosacGroupId: group.id },
+        });
+        if (!link || !link.ponttaOccurrenceId) {
+            console.log(`⚠️ Grupo "${group.gosacTicketName}" sem ocorrência Pontta vinculada.`);
+            return { status: 'ignored', message: `Grupo sem ocorrência Pontta vinculada` };
+        }
+
+        // Monta a URL de download
+        const fileUrl = mediaUrl || `${this.gosacBaseUrl}${mediaPath}`;
+
+        try {
+            // Baixa o arquivo do GOSAC
+            console.log(`⬇️ Baixando arquivo de: ${fileUrl}`);
+            const response = await axios.get(fileUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    Authorization: `INTEGRATION ${this.gosacApiKey}`,
+                },
+                timeout: 30000,
+            });
+
+            const fileBuffer = Buffer.from(response.data);
+            const contentType = response.headers['content-type'] || 'application/octet-stream';
+
+            // Determina o nome do arquivo
+            let filename = 'arquivo';
+            const contentDisposition = response.headers['content-disposition'];
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (match) filename = match[1].replace(/['"]/g, '');
+            } else if (mediaName && mediaName !== 'arquivo') {
+                filename = mediaName;
+            } else {
+                // Gera nome baseado no tipo
+                const ext = contentType.split('/')[1] || 'bin';
+                filename = `gosac_${ticketId}_${Date.now()}.${ext}`;
+            }
+
+            // Autentica no Pontta e faz upload
+            const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+            await this.ponttaService.uploadFileToOccurrence(
+                token,
+                link.ponttaOccurrenceId,
+                fileBuffer,
+                filename,
+                contentType,
+            );
+
+            console.log(`✅ Arquivo "${filename}" enviado para ocorrência Pontta #${link.ponttaOccurrenceNumber || link.ponttaOccurrenceId}`);
+            return { status: 'success', message: `Arquivo "${filename}" enviado para ocorrência Pontta` };
+        } catch (error) {
+            console.error(`❌ Erro ao processar mídia do webhook:`, error.message);
+            return { status: 'error', message: `Erro ao processar mídia: ${error.message}` };
+        }
     }
 }
