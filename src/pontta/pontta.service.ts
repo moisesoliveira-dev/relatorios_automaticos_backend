@@ -35,6 +35,10 @@ export class PonttaService {
     private readonly apiKey: string;
     private readonly businessUnitId: string;
 
+    // Token cache: evita re-autenticação a cada chamada (token válido por ~10 min)
+    private tokenCache: Map<string, { token: string; expiresAt: number }> = new Map();
+    private readonly TOKEN_TTL_MS = 9 * 60 * 1000; // 9 minutos (margem antes do JWT expirar)
+
     constructor(private configService: ConfigService) {
         this.authUrl = this.configService.get<string>('PONTTA_AUTH_URL') || 'https://api.pontta.com/api/authenticate';
         this.apiUrl = this.configService.get<string>('PONTTA_API_URL') || 'https://app.pontta.com/api';
@@ -43,6 +47,13 @@ export class PonttaService {
     }
 
     async authenticate(email: string, password: string): Promise<string> {
+        // Retorna token do cache se ainda válido
+        const cacheKey = `${email}`;
+        const cached = this.tokenCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiresAt) {
+            return cached.token;
+        }
+
         try {
             const response = await axios.post<PonttaAuthResponse>(
                 this.authUrl,
@@ -59,7 +70,10 @@ export class PonttaService {
                 },
             );
 
-            return response.data.id_token;
+            const token = response.data.id_token;
+            // Salva token no cache
+            this.tokenCache.set(cacheKey, { token, expiresAt: Date.now() + this.TOKEN_TTL_MS });
+            return token;
         } catch (error) {
             console.error('Erro na autenticação:', error.response?.data || error.message);
             throw new HttpException(
@@ -67,6 +81,11 @@ export class PonttaService {
                 HttpStatus.UNAUTHORIZED,
             );
         }
+    }
+
+    /** Invalida o token em cache para forçar re-autenticação na próxima chamada */
+    clearTokenCache(email: string): void {
+        this.tokenCache.delete(email);
     }
 
     async getOccurrences(
@@ -209,10 +228,21 @@ export class PonttaService {
             if (data?.content && Array.isArray(data.content)) return data.content;
             return [];
         } catch (error) {
-            console.error('❌ Erro ao buscar pedidos de venda:', error.response?.data || error.message);
+            const ponttaError = error.response?.data;
+            const ponttaStatus = error.response?.status;
+            console.error(`❌ Erro ao buscar pedidos de venda (HTTP ${ponttaStatus}):`, ponttaError || error.message);
+
+            if (ponttaStatus === 401) {
+                throw new HttpException(
+                    'Token Pontta expirado ou inválido. Tente novamente.',
+                    HttpStatus.UNAUTHORIZED,
+                );
+            }
+
+            const detail = ponttaError?.message || ponttaError?.error || error.message || 'Erro desconhecido';
             throw new HttpException(
-                'Falha ao buscar pedidos de venda da API Pontta',
-                HttpStatus.BAD_REQUEST,
+                `Falha ao buscar pedidos de venda: ${detail}`,
+                ponttaStatus || HttpStatus.BAD_GATEWAY,
             );
         }
     }

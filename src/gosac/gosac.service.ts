@@ -182,14 +182,29 @@ export class GosacService {
     // ===== Pedidos de Venda Pontta =====
 
     async searchSalesOrders(query: string): Promise<any[]> {
-        const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-        const results = await this.ponttaService.searchSalesOrders(token, query);
-
-        return results.map((item: any) => ({
-            ponttaId: item.id,
-            code: item.code || item.number || '',
-            customerName: item.customer?.name || item.customerName || '',
-        }));
+        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        try {
+            const results = await this.ponttaService.searchSalesOrders(token, query);
+            return results.map((item: any) => ({
+                ponttaId: item.id,
+                code: item.code || item.number || '',
+                customerName: item.customer?.name || item.customerName || '',
+            }));
+        } catch (error) {
+            // Se foi 401, limpa o cache e tenta uma vez com token novo
+            if (error?.status === 401 || error?.response?.status === 401) {
+                console.warn('♻️ Token Pontta expirado, reautenticando...');
+                this.ponttaService.clearTokenCache(this.ponttaEmail);
+                token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+                const results = await this.ponttaService.searchSalesOrders(token, query);
+                return results.map((item: any) => ({
+                    ponttaId: item.id,
+                    code: item.code || item.number || '',
+                    customerName: item.customer?.name || item.customerName || '',
+                }));
+            }
+            throw error;
+        }
     }
 
     /**
