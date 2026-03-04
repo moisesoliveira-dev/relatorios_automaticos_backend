@@ -89,6 +89,23 @@ export class PonttaService {
         this.tokenCache.delete(email);
     }
 
+    /** Retorna o perfil do usuário autenticado no Pontta (id, name, etc.) */
+    async getCurrentUser(token: string): Promise<any> {
+        try {
+            const response = await axios.get(`${this.apiUrl}/account`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Businessunit: this.businessUnitId,
+                },
+            });
+            console.log(`👤 Usuário Pontta: ${response.data?.id} / ${response.data?.firstName} ${response.data?.lastName}`);
+            return response.data;
+        } catch (error) {
+            console.warn('⚠️ Não foi possível obter perfil Pontta:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
     async getOccurrences(
         token: string,
         page: number = 0,
@@ -258,11 +275,12 @@ export class PonttaService {
             note: string;
             salesOrderCode: string;
             salesOrderId: string;
+            responsibleId?: string | null;
         },
     ): Promise<any> {
         try {
             const url = `${this.apiUrl}/occurrences`;
-            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}`);
+            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}, responsibleId: ${data.responsibleId || 'null'}`);
             const response = await axios.post(url, {
                 id: null,
                 type: 'EXTERNAL',
@@ -276,7 +294,7 @@ export class PonttaService {
                 deadline: null,
                 occurrenceTypeId: null,
                 occurrenceTeamId: null,
-                responsibleId: null,
+                responsibleId: data.responsibleId || null,
                 causedById: null,
                 reference: null,
                 contactExist: false,
