@@ -247,16 +247,15 @@ export class GosacService {
         try {
             console.log(`🔐 Autenticando no Pontta com email: ${this.ponttaEmail}`);
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-            // Obtém o ID do usuário Pontta para definir como responsável (necessário para criar ocorrência)
-            const currentUser = await this.ponttaService.getCurrentUser(token);
-            const responsibleId = currentUser?.id || null;
-            console.log(`📝 Token obtido, responsibleId: ${responsibleId}, criando ocorrência para PV ${code}...`);
+            // Obtém o Collaborator ID (diferente do User ID!) — necessário para criar ocorrência
+            const collaboratorId = await this.ponttaService.getCollaboratorId(token);
+            console.log(`📝 Token obtido, collaboratorId: ${collaboratorId}, criando ocorrência para PV ${code}...`);
             const occurrence = await this.ponttaService.createOccurrence(token, {
                 title: `Anexos GOSAC - ${group.gosacTicketName}`,
                 note: `Ocorrência criada automaticamente para receber anexos do grupo GOSAC "${group.gosacTicketName}" (Ticket #${group.gosacTicketId})`,
                 salesOrderCode: code,
                 salesOrderId: ponttaId,
-                responsibleId,
+                responsibleId: collaboratorId,
             });
 
             // A API Pontta retorna apenas o UUID da ocorrência como string

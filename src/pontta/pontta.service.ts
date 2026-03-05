@@ -98,12 +98,78 @@ export class PonttaService {
                     Businessunit: this.businessUnitId,
                 },
             });
-            console.log(`👤 Usuário Pontta: ${response.data?.id} / ${response.data?.firstName} ${response.data?.lastName}`);
+            console.log(`👤 /api/account FULL response:`, JSON.stringify(response.data).substring(0, 1000));
             return response.data;
         } catch (error) {
             console.warn('⚠️ Não foi possível obter perfil Pontta:', error.response?.data || error.message);
             return null;
         }
+    }
+
+    /**
+     * Busca o colaborador (Collaborator) do usuário autenticado dentro da unidade de negócio.
+     * O Pontta diferencia "user" (conta) de "collaborator" (perfil na business unit).
+     * O responsibleId na criação de ocorrência precisa ser o ID do collaborator, não do user.
+     */
+    async getCollaboratorId(token: string): Promise<string | null> {
+        try {
+            // Tenta buscar o colaborador logado diretamente
+            const response = await axios.get(`${this.apiUrl}/collaborators/logged`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Businessunit: this.businessUnitId,
+                },
+            });
+            console.log(`👤 /api/collaborators/logged FULL response:`, JSON.stringify(response.data).substring(0, 1000));
+            const collaboratorId = response.data?.id || null;
+            if (collaboratorId) {
+                console.log(`✅ Collaborator ID encontrado: ${collaboratorId}`);
+                return String(collaboratorId);
+            }
+        } catch (error) {
+            console.warn(`⚠️ /api/collaborators/logged falhou (${error.response?.status}):`, error.response?.data || error.message);
+        }
+
+        // Fallback: tenta buscar da lista de colaboradores filtrando pelo email do account
+        try {
+            const account = await this.getCurrentUser(token);
+            const email = account?.email || account?.login;
+            if (!email) {
+                console.warn('⚠️ Não foi possível encontrar email do account para buscar collaborator');
+                return null;
+            }
+            console.log(`🔍 Buscando collaborator pela lista, email: ${email}`);
+            const response = await axios.get(`${this.apiUrl}/collaborators`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Businessunit: this.businessUnitId,
+                },
+                params: { page: 0, size: 200 },
+            });
+            const data = response.data;
+            const list = Array.isArray(data) ? data : (data?.content || []);
+            console.log(`📋 Total de collaborators retornados: ${list.length}`);
+            if (list.length > 0) {
+                console.log(`📋 Primeiro collaborator como amostra:`, JSON.stringify(list[0]).substring(0, 500));
+            }
+
+            // Procura o colaborador cujo email "corresponde" ao do usuário autenticado
+            const match = list.find((c: any) =>
+                c.email === email ||
+                c.user?.email === email ||
+                c.user?.login === email ||
+                c.login === email,
+            );
+            if (match) {
+                console.log(`✅ Collaborator encontrado por email match: ${match.id}`);
+                return String(match.id);
+            }
+            console.warn(`⚠️ Nenhum collaborator encontrado com email ${email}`);
+        } catch (error) {
+            console.warn(`⚠️ Falha ao buscar collaborators:`, error.response?.data || error.message);
+        }
+
+        return null;
     }
 
     async getOccurrences(
