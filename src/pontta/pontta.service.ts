@@ -341,15 +341,14 @@ export class PonttaService {
             note: string;
             salesOrderCode: string;
             salesOrderId: string;
-            responsibleId?: string | null;
         },
     ): Promise<any> {
         try {
             const url = `${this.apiUrl}/occurrences`;
-            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}, responsibleId: ${data.responsibleId || 'null'}`);
+            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}`);
             const response = await axios.post(url, {
                 id: null,
-                type: 'EXTERNAL',
+                type: 'OCCURRENCE',
                 occurrenceDate: null,
                 debitResponsible: false,
                 cost: null,
@@ -360,11 +359,10 @@ export class PonttaService {
                 deadline: null,
                 occurrenceTypeId: null,
                 occurrenceTeamId: null,
-                responsibleId: data.responsibleId || null,
+                responsibleId: null,
                 causedById: null,
                 reference: null,
-                contactExist: false,
-                contactId: null,
+                contactExist: true,
                 tagIds: [],
             }, {
                 headers: {
