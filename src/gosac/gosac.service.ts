@@ -242,12 +242,36 @@ export class GosacService {
         });
         await this.linkRepository.save(link);
 
-        // Cria ocorrência no Pontta automaticamente
-        let occurrenceWarning: string | null = null;
+        // Cria ocorrência no Pontta em segundo plano (não bloqueia a resposta ao frontend)
+        this.createPonttaOccurrenceBackground(link.id, salesOrder, group, code, ponttaId);
+
+        // Responde imediatamente ao frontend para não travar a UI
+        return {
+            salesOrder: {
+                ...salesOrder,
+                ponttaOccurrenceId: null,
+                ponttaOccurrenceNumber: null,
+            },
+            link,
+            occurrenceWarning: null,
+        };
+    }
+
+    /**
+     * Cria a ocorrência Pontta em segundo plano após o vínculo já ter sido salvo no banco.
+     * Não lança exceções — apenas loga erros.
+     */
+    private async createPonttaOccurrenceBackground(
+        linkId: string,
+        salesOrder: any,
+        group: any,
+        code: string,
+        ponttaId: string,
+    ): Promise<void> {
         try {
-            console.log(`🔐 Autenticando no Pontta com email: ${this.ponttaEmail}`);
+            console.log(`🔐 [bg] Autenticando no Pontta com email: ${this.ponttaEmail}`);
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-            console.log(`📝 Token obtido, criando ocorrência para PV ${code}...`);
+            console.log(`📝 [bg] Token obtido, criando ocorrência para PV ${code}...`);
             const occurrence = await this.ponttaService.createOccurrence(token, {
                 title: `Anexos GOSAC - ${group.gosacTicketName}`,
                 note: `Ocorrência criada automaticamente para receber anexos do grupo GOSAC "${group.gosacTicketName}" (Ticket #${group.gosacTicketId})`,
@@ -255,35 +279,25 @@ export class GosacService {
                 salesOrderId: ponttaId,
             });
 
-            console.log(`🔍 [linkSalesOrder] occurrence typeof: ${typeof occurrence}`);
-            console.log(`🔍 [linkSalesOrder] occurrence raw: ${JSON.stringify(occurrence)}`);
+            console.log(`🔍 [bg] occurrence typeof: ${typeof occurrence}`);
+            console.log(`🔍 [bg] occurrence raw: ${JSON.stringify(occurrence)}`);
 
-            // O Pontta pode retornar: string UUID, objeto com id/number, ou header x-pontta-params
             const occurrenceId = typeof occurrence === 'string' ? occurrence : (occurrence?.id ?? null);
             const occurrenceNumber = typeof occurrence === 'object'
                 ? (occurrence?.number ?? occurrence?.occurrenceNumber ?? null)
                 : null;
-            link.ponttaOccurrenceId = occurrenceId;
-            link.ponttaOccurrenceNumber = occurrenceNumber;
-            await this.linkRepository.save(link);
 
-            console.log(`✅ [linkSalesOrder] occurrenceId salvo: ${occurrenceId}`);
-            console.log(`✅ [linkSalesOrder] occurrenceNumber salvo: ${occurrenceNumber}`);
+            // Atualiza o link com os dados da ocorrência
+            await this.linkRepository.update(linkId, {
+                ponttaOccurrenceId: occurrenceId,
+                ponttaOccurrenceNumber: occurrenceNumber,
+            });
+
+            console.log(`✅ [bg] occurrenceId salvo: ${occurrenceId}`);
+            console.log(`✅ [bg] occurrenceNumber salvo: ${occurrenceNumber}`);
         } catch (error) {
-            occurrenceWarning = error?.response?.data?.message || error?.message || 'Erro desconhecido ao criar ocorrência';
-            console.error(`⚠️ [linkSalesOrder] Falha ao criar ocorrência: ${occurrenceWarning}`);
+            console.error(`⚠️ [bg] Falha ao criar ocorrência Pontta em segundo plano: ${error?.message}`);
         }
-
-        // Retorna o salesOrder mesclado com os dados da ocorrência para o frontend usar diretamente
-        return {
-            salesOrder: {
-                ...salesOrder,
-                ponttaOccurrenceId: link.ponttaOccurrenceId ?? null,
-                ponttaOccurrenceNumber: link.ponttaOccurrenceNumber ?? null,
-            },
-            link,
-            occurrenceWarning,
-        };
     }
 
     /**
