@@ -255,18 +255,23 @@ export class GosacService {
                 salesOrderId: ponttaId,
             });
 
-            // A API Pontta retorna apenas o UUID da ocorrência como string
+            console.log(`🔍 [linkSalesOrder] occurrence typeof: ${typeof occurrence}`);
+            console.log(`🔍 [linkSalesOrder] occurrence raw: ${JSON.stringify(occurrence)}`);
+
+            // O Pontta pode retornar: string UUID, objeto com id/number, ou header x-pontta-params
             const occurrenceId = typeof occurrence === 'string' ? occurrence : (occurrence?.id ?? null);
-            link.ponttaOccurrenceId = occurrenceId;
-            link.ponttaOccurrenceNumber = typeof occurrence === 'object'
+            const occurrenceNumber = typeof occurrence === 'object'
                 ? (occurrence?.number ?? occurrence?.occurrenceNumber ?? null)
                 : null;
+            link.ponttaOccurrenceId = occurrenceId;
+            link.ponttaOccurrenceNumber = occurrenceNumber;
             await this.linkRepository.save(link);
 
-            console.log(`✅ Ocorrência Pontta ${occurrenceId} criada para grupo "${group.gosacTicketName}"`);
+            console.log(`✅ [linkSalesOrder] occurrenceId salvo: ${occurrenceId}`);
+            console.log(`✅ [linkSalesOrder] occurrenceNumber salvo: ${occurrenceNumber}`);
         } catch (error) {
             occurrenceWarning = error?.response?.data?.message || error?.message || 'Erro desconhecido ao criar ocorrência';
-            console.error(`⚠️ Falha ao criar ocorrência no Pontta para grupo "${group.gosacTicketName}": ${occurrenceWarning}`);
+            console.error(`⚠️ [linkSalesOrder] Falha ao criar ocorrência: ${occurrenceWarning}`);
         }
 
         // Retorna o salesOrder mesclado com os dados da ocorrência para o frontend usar diretamente

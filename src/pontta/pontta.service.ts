@@ -345,8 +345,7 @@ export class PonttaService {
     ): Promise<any> {
         try {
             const url = `${this.apiUrl}/occurrences`;
-            console.log(`📝 Criando ocorrência no Pontta: "${data.title}" para PV ${data.salesOrderCode}`);
-            const response = await axios.post(url, {
+            const body = {
                 id: null,
                 type: 'OCCURRENCE',
                 occurrenceDate: null,
@@ -364,7 +363,11 @@ export class PonttaService {
                 reference: null,
                 contactExist: true,
                 tagIds: [],
-            }, {
+            };
+            console.log(`📝 [createOccurrence] POST ${url}`);
+            console.log(`📝 [createOccurrence] Body:`, JSON.stringify(body));
+            console.log(`📝 [createOccurrence] Headers: Businessunit=${this.businessUnitId}`);
+            const response = await axios.post(url, body, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -372,10 +375,20 @@ export class PonttaService {
                 },
             });
 
-            console.log(`✅ Ocorrência criada no Pontta:`, JSON.stringify(response.data).substring(0, 300));
+            console.log(`✅ [createOccurrence] HTTP ${response.status}`);
+            console.log(`✅ [createOccurrence] response.data tipo: ${typeof response.data}`);
+            console.log(`✅ [createOccurrence] response.data raw:`, JSON.stringify(response.data));
+            console.log(`✅ [createOccurrence] headers x-pontta-params:`, response.headers?.['x-pontta-params']);
+
+            // O Pontta retorna body vazio (ou string) mas o UUID da ocorrência vem no header x-pontta-params
+            const headerUuid = response.headers?.['x-pontta-params'] || null;
+            if (headerUuid) {
+                console.log(`✅ [createOccurrence] UUID extraído do header: ${headerUuid}`);
+                return headerUuid; // retorna o UUID como string
+            }
             return response.data;
         } catch (error) {
-            console.error('❌ Erro ao criar ocorrência no Pontta:', error.response?.data || error.message);
+            console.error(`❌ [createOccurrence] HTTP ${error.response?.status}:`, JSON.stringify(error.response?.data || error.message));
             throw new HttpException(
                 `Falha ao criar ocorrência no Pontta: ${error.response?.data?.message || error.message}`,
                 HttpStatus.BAD_REQUEST,
