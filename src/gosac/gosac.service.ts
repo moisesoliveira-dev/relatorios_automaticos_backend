@@ -125,6 +125,7 @@ export class GosacService {
                         ...l.salesOrder,
                         ponttaOccurrenceId: l.ponttaOccurrenceId ?? null,
                         ponttaOccurrenceNumber: l.ponttaOccurrenceNumber ?? null,
+                        ponttaOccurrenceStatus: l.ponttaOccurrenceStatus ?? 'pending',
                     })),
             });
         }
@@ -251,6 +252,7 @@ export class GosacService {
                 ...salesOrder,
                 ponttaOccurrenceId: null,
                 ponttaOccurrenceNumber: null,
+                ponttaOccurrenceStatus: 'pending',
             },
             link,
             occurrenceWarning: null,
@@ -291,12 +293,14 @@ export class GosacService {
             await this.linkRepository.update(linkId, {
                 ponttaOccurrenceId: occurrenceId,
                 ponttaOccurrenceNumber: occurrenceNumber,
+                ponttaOccurrenceStatus: 'created',
             });
 
             console.log(`✅ [bg] occurrenceId salvo: ${occurrenceId}`);
             console.log(`✅ [bg] occurrenceNumber salvo: ${occurrenceNumber}`);
         } catch (error) {
             console.error(`⚠️ [bg] Falha ao criar ocorrência Pontta em segundo plano: ${error?.message}`);
+            await this.linkRepository.update(linkId, { ponttaOccurrenceStatus: 'failed' });
         }
     }
 
@@ -327,21 +331,25 @@ export class GosacService {
     /**
      * Processa webhook do GOSAC.
      * Quando uma mensagem contém mídia (imagem/arquivo), baixa o arquivo e envia para a ocorrência Pontta.
+     * Estrutura real do payload: { data: { mediaUrl, mediaPath, body, ticket: { id } }, type }
      */
     async handleWebhook(payload: any): Promise<{ status: string; message: string }> {
         console.log('📨 Webhook GOSAC recebido:', JSON.stringify(payload).substring(0, 500));
 
-        // Extrai o ticketId do payload
-        const ticketId = payload?.ticket?.id || payload?.ticketId;
+        // O GOSAC envolve tudo em payload.data
+        const data = payload?.data ?? payload;
+
+        // Extrai o ticketId
+        const ticketId = data?.ticket?.id ?? data?.ticketId ?? payload?.ticketId;
         if (!ticketId) {
             console.log('⚠️ Webhook sem ticketId, ignorando.');
             return { status: 'ignored', message: 'Sem ticketId no payload' };
         }
 
         // Verifica se há mídia na mensagem
-        const mediaUrl = payload?.mediaUrl || payload?.message?.mediaUrl || payload?.body?.mediaUrl;
-        const mediaPath = payload?.mediaPath || payload?.message?.mediaPath || payload?.body?.mediaPath;
-        const mediaName = payload?.message?.body || payload?.body?.body || 'arquivo';
+        const mediaUrl: string | null = data?.mediaUrl ?? null;
+        const mediaPath: string | null = data?.mediaPath ?? null;
+        const mediaName: string = data?.body || `arquivo_${ticketId}_${Date.now()}`;
 
         if (!mediaUrl && !mediaPath) {
             console.log(`ℹ️ Webhook para ticket #${ticketId} sem mídia, ignorando.`);
@@ -366,8 +374,8 @@ export class GosacService {
             return { status: 'ignored', message: `Grupo sem ocorrência Pontta vinculada` };
         }
 
-        // Monta a URL de download
-        const fileUrl = mediaUrl || `${this.gosacBaseUrl}${mediaPath}`;
+        // mediaUrl e mediaPath do GOSAC já chegam como URLs completas
+        const fileUrl = (mediaUrl || mediaPath) as string;
 
         try {
             // Baixa o arquivo do GOSAC
@@ -384,16 +392,14 @@ export class GosacService {
             const contentType = response.headers['content-type'] || 'application/octet-stream';
 
             // Determina o nome do arquivo
-            let filename = 'arquivo';
+            let filename = mediaName;
             const contentDisposition = response.headers['content-disposition'];
             if (contentDisposition) {
                 const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
                 if (match) filename = match[1].replace(/['"]/g, '');
-            } else if (mediaName && mediaName !== 'arquivo') {
-                filename = mediaName;
-            } else {
-                // Gera nome baseado no tipo
-                const ext = contentType.split('/')[1] || 'bin';
+            }
+            if (!filename || filename === 'arquivo') {
+                const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
                 filename = `gosac_${ticketId}_${Date.now()}.${ext}`;
             }
 

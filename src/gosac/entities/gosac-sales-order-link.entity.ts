@@ -30,6 +30,10 @@ export class GosacSalesOrderLink {
     @Column({ type: 'int', nullable: true })
     ponttaOccurrenceNumber: number | null;
 
+    /** Status da criação da ocorrência no Pontta */
+    @Column({ type: 'varchar', default: 'pending' })
+    ponttaOccurrenceStatus: 'pending' | 'created' | 'failed';
+
     @ManyToOne(() => GosacGroup, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'gosacGroupId' })
     gosacGroup: GosacGroup;
