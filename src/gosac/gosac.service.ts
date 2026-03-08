@@ -7,6 +7,7 @@ import { GosacGroup } from './entities/gosac-group.entity';
 import { PonttaSalesOrder } from './entities/pontta-sales-order.entity';
 import { GosacSalesOrderLink } from './entities/gosac-sales-order-link.entity';
 import { PonttaService } from '../pontta/pontta.service';
+import { SettingsService } from '../settings/settings.service';
 import { CreateGosacGroupDto, UpdateGosacGroupDto } from './dto/gosac.dto';
 
 export interface GosacTicket {
@@ -45,6 +46,7 @@ export class GosacService {
         private readonly linkRepository: Repository<GosacSalesOrderLink>,
         private readonly ponttaService: PonttaService,
         private readonly configService: ConfigService,
+        private readonly settingsService: SettingsService,
     ) {
         this.gosacBaseUrl = this.configService.get<string>('GOSAC_BASE_URL') || 'https://cmmodulados.gosac.com.br';
         this.gosacApiKey = this.configService.get<string>('GOSAC_API_KEY') || 'your_gosac_api_key';
@@ -260,6 +262,29 @@ export class GosacService {
     }
 
     /**
+     * Atualiza a fila e o responsável do ticket GOSAC ao vincular um pedido de venda.
+     * Lê userId e queueId das configurações do banco para permitir edição pela interface.
+     */
+    private async updateGosacTicketQueue(ticketId: number): Promise<void> {
+        try {
+            const userIdStr = await this.settingsService.findByKey('GOSAC_TICKET_USER_ID');
+            const queueIdStr = await this.settingsService.findByKey('GOSAC_TICKET_QUEUE_ID');
+            const userId = parseInt(userIdStr || '49', 10);
+            const queueId = parseInt(queueIdStr || '57', 10);
+            const url = `${this.gosacBaseUrl}/api/tickets/${ticketId}`;
+            await axios.put(url, { userId, queueId, status: 'open', obs: '' }, {
+                headers: {
+                    Authorization: `INTEGRATION ${this.gosacApiKey}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+            console.log(`✅ [bg] Ticket GOSAC #${ticketId} atualizado: userId=${userId}, queueId=${queueId}`);
+        } catch (error) {
+            console.error(`⚠️ [bg] Falha ao atualizar ticket GOSAC #${ticketId}:`, error?.response?.data || error?.message);
+        }
+    }
+
+    /**
      * Cria a ocorrência Pontta em segundo plano após o vínculo já ter sido salvo no banco.
      * Não lança exceções — apenas loga erros.
      */
@@ -272,6 +297,9 @@ export class GosacService {
         occurrenceTitle?: string,
     ): Promise<void> {
         try {
+            // Atualiza fila/responsável do ticket GOSAC
+            await this.updateGosacTicketQueue(group.gosacTicketId);
+
             console.log(`🔐 [bg] Autenticando no Pontta com email: ${this.ponttaEmail}`);
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
             console.log(`📝 [bg] Token obtido, criando ocorrência para PV ${code}...`);
