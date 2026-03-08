@@ -109,7 +109,7 @@ export class GosacController {
      */
     @Post('groups/:id/sales-orders')
     async linkSalesOrder(@Param('id') id: string, @Body() dto: LinkSalesOrderDto) {
-        return this.gosacService.linkSalesOrder(id, dto.ponttaId, dto.code, dto.customerName);
+        return this.gosacService.linkSalesOrder(id, dto.ponttaId, dto.code, dto.customerName, dto.occurrenceTitle);
     }
 
     /**

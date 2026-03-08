@@ -213,7 +213,7 @@ export class GosacService {
      * Associa um pedido de venda a um grupo GOSAC.
      * Salva o pedido na tabela de cache, cria o link e cria uma ocorrência no Pontta.
      */
-    async linkSalesOrder(groupId: string, ponttaId: string, code: string, customerName: string) {
+    async linkSalesOrder(groupId: string, ponttaId: string, code: string, customerName: string, occurrenceTitle?: string) {
         // Garante que o grupo existe
         const group = await this.findGroupById(groupId);
 
@@ -244,7 +244,7 @@ export class GosacService {
         await this.linkRepository.save(link);
 
         // Cria ocorrência no Pontta em segundo plano (não bloqueia a resposta ao frontend)
-        this.createPonttaOccurrenceBackground(link.id, salesOrder, group, code, ponttaId);
+        this.createPonttaOccurrenceBackground(link.id, salesOrder, group, code, ponttaId, occurrenceTitle);
 
         // Responde imediatamente ao frontend para não travar a UI
         return {
@@ -269,13 +269,15 @@ export class GosacService {
         group: any,
         code: string,
         ponttaId: string,
+        occurrenceTitle?: string,
     ): Promise<void> {
         try {
             console.log(`🔐 [bg] Autenticando no Pontta com email: ${this.ponttaEmail}`);
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
             console.log(`📝 [bg] Token obtido, criando ocorrência para PV ${code}...`);
+            const title = occurrenceTitle?.trim() || `Anexos GOSAC - ${group.gosacTicketName}`;
             const occurrence = await this.ponttaService.createOccurrence(token, {
-                title: `Anexos GOSAC - ${group.gosacTicketName}`,
+                title,
                 note: `Ocorrência criada automaticamente para receber anexos do grupo GOSAC "${group.gosacTicketName}" (Ticket #${group.gosacTicketId})`,
                 salesOrderCode: code,
                 salesOrderId: ponttaId,

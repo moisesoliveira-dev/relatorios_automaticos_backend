@@ -31,4 +31,8 @@ export class LinkSalesOrderDto {
 
     @IsString()
     customerName: string;
+
+    @IsOptional()
+    @IsString()
+    occurrenceTitle?: string;
 }
