@@ -436,4 +436,93 @@ export class PonttaService {
             );
         }
     }
+
+    /**
+     * Busca orçamentos (proposals) ativos no Pontta
+     */
+    async getProposals(
+        token: string,
+        page: number = 0,
+        size: number = 10,
+        query?: string,
+    ): Promise<any[]> {
+        try {
+            const url = `${this.apiUrl}/proposals/summary`;
+            const params: Record<string, string> = {
+                status: 'ACTIVED',
+                page: String(page),
+                size: String(size),
+                sort: 'createdAt,desc',
+            };
+            if (query && query.trim().length > 0) {
+                params.q = query.trim();
+            }
+
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    Businessunit: this.businessUnitId,
+                },
+                params,
+            });
+
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            if (data?.content && Array.isArray(data.content)) return data.content;
+            return [];
+        } catch (error) {
+            const ponttaStatus = error.response?.status;
+            const ponttaError = error.response?.data;
+
+            if (ponttaStatus === 401) {
+                throw new HttpException(
+                    'Token Pontta expirado ou inválido. Tente novamente.',
+                    HttpStatus.UNAUTHORIZED,
+                );
+            }
+
+            const detail = ponttaError?.message || ponttaError?.error || error.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar orçamentos: ${detail}`,
+                ponttaStatus || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /**
+     * Busca os itens (ambientes) de um orçamento no Pontta
+     */
+    async getProposalItems(token: string, proposalId: string): Promise<any[]> {
+        try {
+            const url = `${this.apiUrl}/proposals/${proposalId}/versions/items`;
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    Businessunit: this.businessUnitId,
+                },
+            });
+
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            return [];
+        } catch (error) {
+            const ponttaStatus = error.response?.status;
+            const ponttaError = error.response?.data;
+
+            if (ponttaStatus === 401) {
+                throw new HttpException(
+                    'Token Pontta expirado ou inválido.',
+                    HttpStatus.UNAUTHORIZED,
+                );
+            }
+
+            const detail = ponttaError?.message || ponttaError?.error || error.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar itens do orçamento: ${detail}`,
+                ponttaStatus || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
 }

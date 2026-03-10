@@ -450,4 +450,34 @@ export class GosacService {
             return { status: 'error', message: `Erro ao processar mídia: ${error.message}` };
         }
     }
+
+    // ===== Orçamentos (Proposals) Pontta =====
+
+    async getProposals(query?: string): Promise<any[]> {
+        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        try {
+            return await this.ponttaService.getProposals(token, 0, 10, query);
+        } catch (error) {
+            if (error?.status === 401 || error?.response?.status === 401) {
+                this.ponttaService.clearTokenCache(this.ponttaEmail);
+                token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+                return await this.ponttaService.getProposals(token, 0, 10, query);
+            }
+            throw error;
+        }
+    }
+
+    async getProposalItems(proposalId: string): Promise<any[]> {
+        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        try {
+            return await this.ponttaService.getProposalItems(token, proposalId);
+        } catch (error) {
+            if (error?.status === 401 || error?.response?.status === 401) {
+                this.ponttaService.clearTokenCache(this.ponttaEmail);
+                token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+                return await this.ponttaService.getProposalItems(token, proposalId);
+            }
+            throw error;
+        }
+    }
 }
