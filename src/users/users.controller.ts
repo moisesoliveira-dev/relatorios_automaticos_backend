@@ -31,9 +31,11 @@ export class UsersController {
     @Roles(UserRole.MASTER, UserRole.ADMIN)
     async inviteUser(@Request() req: any, @Body() inviteDto: InviteUserDto) {
         const result = await this.usersService.createInvite(req.user.sub, inviteDto.email, inviteDto.role);
-        const inviteLink = `http://localhost:4200/invite`;
+        const inviteLink = `${result.frontendUrl}/invite`;
         return {
-            message: 'Convite criado com sucesso. Código enviado por email.',
+            message: result.emailSent
+                ? 'Convite criado com sucesso. Email enviado!'
+                : 'Convite criado. Email não foi entregue — compartilhe o código manualmente.',
             user: {
                 id: result.user.id,
                 email: result.user.email,
@@ -42,6 +44,8 @@ export class UsersController {
             inviteCode: result.inviteCode,
             inviteLink,
             expiresAt: result.expiresAt,
+            emailSent: result.emailSent,
+            emailError: result.emailError,
         };
     }
 

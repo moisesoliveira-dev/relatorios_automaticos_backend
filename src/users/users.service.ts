@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { User, UserRole, UserStatus } from './entities/user.entity';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 import { EmailService } from '../email/email.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class UsersService {
@@ -13,6 +14,7 @@ export class UsersService {
         @InjectRepository(User)
         private usersRepository: Repository<User>,
         private emailService: EmailService,
+        private settingsService: SettingsService,
     ) { }
 
     async create(createUserDto: CreateUserDto): Promise<User> {
@@ -69,7 +71,7 @@ export class UsersService {
         });
     }
 
-    async createInvite(inviterUserId: string, email: string, role: UserRole = UserRole.USER): Promise<{ inviteToken: string; inviteCode: string; expiresAt: Date; user: User }> {
+    async createInvite(inviterUserId: string, email: string, role: UserRole = UserRole.USER): Promise<{ inviteToken: string; inviteCode: string; expiresAt: Date; user: User; frontendUrl: string; emailSent: boolean; emailError?: string }> {
         // Verifica se o usuário que está convidando é master ou admin
         const inviter = await this.findOne(inviterUserId);
         if (inviter.role !== UserRole.MASTER && inviter.role !== UserRole.ADMIN) {
@@ -111,7 +113,12 @@ export class UsersService {
         const savedUser = await this.usersRepository.save(user);
 
         // Envia email de convite
-        const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:4200'}/register?token=${inviteToken}`;
+        const frontendUrl = await this.settingsService.findByKey('FRONTEND_URL')
+            || process.env.FRONTEND_URL
+            || 'http://localhost:4200';
+        const inviteLink = `${frontendUrl}/register?token=${inviteToken}`;
+        let emailSent = false;
+        let emailError: string | undefined;
         try {
             await this.emailService.sendEmail({
                 to: email,
@@ -164,12 +171,13 @@ export class UsersService {
                 `,
             });
             console.log('✅ Email de convite enviado para:', email, 'Código:', inviteCode);
+            emailSent = true;
         } catch (error) {
-            console.error('❌ Erro ao enviar email de convite:', error);
-            // Não falha o processo se o email não for enviado
+            console.error('❌ Erro ao enviar email de convite:', error?.message || error);
+            emailError = error?.message || 'Erro desconhecido ao enviar email';
         }
 
-        return { inviteToken, inviteCode, expiresAt, user: savedUser };
+        return { inviteToken, inviteCode, expiresAt, user: savedUser, frontendUrl, emailSent, emailError };
     }
 
     async validateInviteCode(code: string): Promise<{ valid: boolean; email?: string; token?: string; message?: string }> {
