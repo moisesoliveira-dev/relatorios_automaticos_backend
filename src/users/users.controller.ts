@@ -49,6 +49,24 @@ export class UsersController {
         };
     }
 
+    @Get('registrations/pending')
+    @Roles(UserRole.MASTER, UserRole.ADMIN)
+    getPendingRegistrations() {
+        return this.usersService.getSelfRegisteredPending();
+    }
+
+    @Post('registrations/:id/approve')
+    @Roles(UserRole.MASTER, UserRole.ADMIN)
+    approveRegistration(@Param('id') id: string, @Body() body: { role: UserRole }) {
+        return this.usersService.approveRegistration(id, body.role || UserRole.USER);
+    }
+
+    @Delete('registrations/:id')
+    @Roles(UserRole.MASTER, UserRole.ADMIN)
+    rejectRegistration(@Param('id') id: string) {
+        return this.usersService.rejectRegistration(id);
+    }
+
     @Get('invites/pending')
     @Roles(UserRole.MASTER, UserRole.ADMIN)
     getPendingInvites() {

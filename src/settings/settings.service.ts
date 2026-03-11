@@ -156,12 +156,14 @@ export class SettingsService {
     // por questões de segurança - devem permanecer apenas no .env
     async initializeDefaults(): Promise<void> {
         const defaults = [
-            // Email - Configurações SMTP editáveis pela interface
+            // Email - Configurações editáveis pela interface
+            { key: 'EMAIL_PROVIDER', value: 'smtp', category: 'email', description: 'Provedor de email (smtp ou resend)' },
             { key: 'SMTP_HOST', value: process.env.SMTP_HOST || 'smtp.gmail.com', category: 'email', description: 'Servidor SMTP' },
             { key: 'SMTP_PORT', value: process.env.SMTP_PORT || '587', category: 'email', description: 'Porta SMTP' },
             { key: 'SMTP_USER', value: process.env.SMTP_USER || '', category: 'email', description: 'Usuário SMTP' },
             { key: 'SMTP_PASSWORD', value: process.env.SMTP_PASS || '', category: 'email', description: 'Senha SMTP' },
-            { key: 'SMTP_FROM', value: process.env.SMTP_FROM || '', category: 'email', description: 'Email remetente' },
+            { key: 'SMTP_FROM', value: process.env.SMTP_FROM || '', category: 'email', description: 'Email remetente (ex: Nome <email@dominio.com>)' },
+            { key: 'RESEND_API_KEY', value: process.env.RESEND_API_KEY || '', category: 'email', description: 'Chave da API Resend (necessária se provedor = resend)' },
 
             // Pontta API - Configurações da API Pontta
             { key: 'PONTTA_AUTH_URL', value: process.env.PONTTA_AUTH_URL || '', category: 'api', description: 'URL de Autenticação Pontta' },

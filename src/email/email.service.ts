@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import axios from 'axios';
 import { SettingsService } from '../settings/settings.service';
 
 export interface EmailOptions {
@@ -22,7 +23,14 @@ export class EmailService {
         private settingsService: SettingsService,
     ) { }
 
-    /** Cria um transporter fresco com as credenciais mais atuais do banco/settings. */
+    /** Retorna o provedor configurado: 'smtp' ou 'resend'. */
+    private async getProvider(): Promise<string> {
+        return await this.settingsService.findByKey('EMAIL_PROVIDER')
+            || this.configService.get<string>('EMAIL_PROVIDER')
+            || 'smtp';
+    }
+
+    /** Cria um transporter SMTP fresco com as credenciais mais atuais. */
     private async createTransporter(): Promise<nodemailer.Transporter> {
         // Lê do banco (settings editáveis pela UI) com fallback para env vars
         const host = await this.settingsService.findByKey('SMTP_HOST')
@@ -50,15 +58,46 @@ export class EmailService {
         });
     }
 
+    /** Envia via Resend HTTP API (funciona em plataformas que bloqueiam SMTP, como Railway). */
+    private async sendViaResend(
+        from: string, to: string, subject: string,
+        html?: string, text?: string, attachments?: EmailOptions['attachments'],
+    ): Promise<void> {
+        const apiKey = await this.settingsService.findByKey('RESEND_API_KEY')
+            || this.configService.get<string>('RESEND_API_KEY') || '';
+
+        if (!apiKey) {
+            throw new Error('RESEND_API_KEY não configurada. Vá em Configurações > Email e preencha a chave da API Resend.');
+        }
+
+        const payload: any = { from, to: [to], subject };
+        if (html) payload.html = html;
+        if (text) payload.text = text;
+
+        if (attachments?.length) {
+            payload.attachments = attachments.map(a => ({
+                filename: a.filename,
+                content: Buffer.isBuffer(a.content)
+                    ? a.content.toString('base64')
+                    : Buffer.from(a.content, 'utf-8').toString('base64'),
+                content_type: a.contentType,
+            }));
+        }
+
+        console.log(`📧 Resend: enviando para ${to}, assunto="${subject}", anexos=${attachments?.length || 0}`);
+
+        const response = await axios.post('https://api.resend.com/emails', payload, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        console.log(`✅ Resend: email enviado, id=${response.data?.id}`);
+    }
+
     async sendEmail(options: EmailOptions): Promise<boolean> {
         try {
-            console.log('📧 Tentando enviar email para:', options.to);
-            console.log('📧 Tipo do destinatário:', typeof options.to);
-            console.log('📧 É array?:', Array.isArray(options.to));
-            console.log('📧 Assunto:', options.subject);
-            console.log('📧 Anexos:', options.attachments?.length || 0);
-
-            // Converte array para string se necessário
             const emailTo = Array.isArray(options.to) ? options.to.join(',') : options.to;
 
             if (!emailTo || (typeof emailTo === 'string' && emailTo.trim() === '')) {
@@ -68,29 +107,30 @@ export class EmailService {
             const from = await this.settingsService.findByKey('SMTP_FROM')
                 || this.configService.get<string>('SMTP_FROM') || '';
 
-            const mailOptions = {
-                from,
-                to: emailTo,
-                subject: options.subject,
-                text: options.text,
-                html: options.html,
-                attachments: options.attachments,
-            };
+            const provider = await this.getProvider();
+            console.log(`📧 Provider: ${provider} | Para: ${emailTo} | Assunto: ${options.subject} | Anexos: ${options.attachments?.length || 0}`);
 
-            console.log('📧 Configurações do email:', {
-                from: mailOptions.from,
-                to: mailOptions.to,
-                subject: mailOptions.subject,
-            });
+            if (provider === 'resend') {
+                await this.sendViaResend(from, emailTo, options.subject, options.html, options.text, options.attachments);
+            } else {
+                const transporter = await this.createTransporter();
+                await transporter.sendMail({
+                    from,
+                    to: emailTo,
+                    subject: options.subject,
+                    text: options.text,
+                    html: options.html,
+                    attachments: options.attachments,
+                });
+            }
 
-            const transporter = await this.createTransporter();
-            await transporter.sendMail(mailOptions);
             console.log('✅ Email enviado com sucesso para:', emailTo);
             return true;
         } catch (error) {
-            console.error('❌ Erro ao enviar email:', error);
+            const detail = error?.response?.data || error?.message || error;
+            console.error('❌ Erro ao enviar email:', detail);
             throw new HttpException(
-                `Falha ao enviar email: ${error.message}`,
+                `Falha ao enviar email: ${typeof detail === 'object' ? JSON.stringify(detail) : detail}`,
                 HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }

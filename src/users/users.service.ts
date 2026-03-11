@@ -1,10 +1,10 @@
 import { Injectable, ConflictException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { User, UserRole, UserStatus } from './entities/user.entity';
-import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, SelfRegisterDto } from './dto/user.dto';
 import { EmailService } from '../email/email.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -69,6 +69,50 @@ export class UsersService {
         return this.usersRepository.findOne({
             where: { role: UserRole.MASTER }
         });
+    }
+
+    async selfRegister(dto: SelfRegisterDto): Promise<{ message: string }> {
+        const existing = await this.findByEmail(dto.email);
+        if (existing) {
+            throw new ConflictException('Este email já está em uso');
+        }
+        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        await this.usersRepository.save(this.usersRepository.create({
+            email: dto.email,
+            name: dto.name,
+            password: hashedPassword,
+            role: UserRole.USER,
+            status: UserStatus.PENDING,
+            isActive: false,
+        }));
+        return { message: 'Cadastro realizado! Aguarde a aprovação do administrador.' };
+    }
+
+    async getSelfRegisteredPending(): Promise<User[]> {
+        return this.usersRepository.find({
+            where: { status: UserStatus.PENDING, inviteToken: IsNull(), inviteCode: IsNull() },
+            select: ['id', 'email', 'name', 'role', 'status', 'createdAt'],
+            order: { createdAt: 'DESC' },
+        });
+    }
+
+    async approveRegistration(id: string, role: UserRole): Promise<User> {
+        const user = await this.findOne(id);
+        if (user.role === UserRole.MASTER) {
+            throw new ForbiddenException('Não é possível alterar o master');
+        }
+        user.status = UserStatus.ACTIVE;
+        user.isActive = true;
+        user.role = role;
+        return this.usersRepository.save(user);
+    }
+
+    async rejectRegistration(id: string): Promise<void> {
+        const user = await this.findOne(id);
+        if (user.role === UserRole.MASTER) {
+            throw new ForbiddenException('Não é possível remover o master');
+        }
+        await this.usersRepository.remove(user);
     }
 
     async createInvite(inviterUserId: string, email: string, role: UserRole = UserRole.USER): Promise<{ inviteToken: string; inviteCode: string; expiresAt: Date; user: User; frontendUrl: string; emailSent: boolean; emailError?: string }> {
