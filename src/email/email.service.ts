@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { SettingsService } from '../settings/settings.service';
 
 export interface EmailOptions {
     to: string;
@@ -16,20 +17,36 @@ export interface EmailOptions {
 
 @Injectable()
 export class EmailService {
-    private transporter: nodemailer.Transporter;
+    constructor(
+        private configService: ConfigService,
+        private settingsService: SettingsService,
+    ) { }
 
-    constructor(private configService: ConfigService) {
-        this.transporter = nodemailer.createTransport({
-            host: this.configService.get<string>('SMTP_HOST'),
-            port: this.configService.get<number>('SMTP_PORT'),
-            secure: false, // true para 465, false para outras portas
-            auth: {
-                user: this.configService.get<string>('SMTP_USER'),
-                pass: this.configService.get<string>('SMTP_PASS'),
-            },
-            connectionTimeout: 30000,  // 30s para conectar ao SMTP
-            greetingTimeout: 30000,    // 30s para o EHLO/HELO
-            socketTimeout: 240000,     // 4 min para o envio completo
+    /** Cria um transporter fresco com as credenciais mais atuais do banco/settings. */
+    private async createTransporter(): Promise<nodemailer.Transporter> {
+        // Lê do banco (settings editáveis pela UI) com fallback para env vars
+        const host = await this.settingsService.findByKey('SMTP_HOST')
+            || this.configService.get<string>('SMTP_HOST') || '';
+        const portStr = await this.settingsService.findByKey('SMTP_PORT')
+            || this.configService.get<string>('SMTP_PORT') || '587';
+        const user = await this.settingsService.findByKey('SMTP_USER')
+            || this.configService.get<string>('SMTP_USER') || '';
+        const pass = await this.settingsService.findByKey('SMTP_PASSWORD')
+            || this.configService.get<string>('SMTP_PASS') || '';
+
+        const port = parseInt(portStr, 10);
+        const secure = port === 465;
+
+        console.log(`📧 SMTP config: host=${host}, port=${port}, secure=${secure}, user=${user}`);
+
+        return nodemailer.createTransport({
+            host,
+            port,
+            secure,
+            auth: { user, pass },
+            connectionTimeout: 30000,
+            greetingTimeout: 30000,
+            socketTimeout: 240000,
         });
     }
 
@@ -48,8 +65,11 @@ export class EmailService {
                 throw new Error('Email de destino não definido');
             }
 
+            const from = await this.settingsService.findByKey('SMTP_FROM')
+                || this.configService.get<string>('SMTP_FROM') || '';
+
             const mailOptions = {
-                from: this.configService.get<string>('SMTP_FROM'),
+                from,
                 to: emailTo,
                 subject: options.subject,
                 text: options.text,
@@ -63,7 +83,8 @@ export class EmailService {
                 subject: mailOptions.subject,
             });
 
-            await this.transporter.sendMail(mailOptions);
+            const transporter = await this.createTransporter();
+            await transporter.sendMail(mailOptions);
             console.log('✅ Email enviado com sucesso para:', emailTo);
             return true;
         } catch (error) {
