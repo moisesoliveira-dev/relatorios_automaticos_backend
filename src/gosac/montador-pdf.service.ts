@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface MontadorPdfData {
     proposalCode: string;
@@ -19,8 +21,47 @@ export interface MontadorPdfData {
 export class MontadorPdfService {
     private readonly logger = new Logger(MontadorPdfService.name);
 
+    private readonly logoPath = path.join(process.cwd(), 'src', 'assets', 'logo.png');
+
+    private getLogoBase64(): string | null {
+        try {
+            const candidates = [
+                path.join(process.cwd(), 'src', 'assets', 'logo.png'),
+                path.join(process.cwd(), 'src', 'assets', 'logo.jpg'),
+                path.join(process.cwd(), 'src', 'assets', 'logo.jpeg'),
+                path.join(process.cwd(), 'src', 'assets', 'logo.webp'),
+                path.join(process.cwd(), 'assets', 'logo.png'),
+                path.join(process.cwd(), 'assets', 'logo.jpg'),
+                path.join(process.cwd(), 'assets', 'logo.jpeg'),
+            ];
+            for (const p of candidates) {
+                if (fs.existsSync(p)) {
+                    const ext = path.extname(p).replace('.', '').replace('jpg', 'jpeg');
+                    const b64 = fs.readFileSync(p).toString('base64');
+                    return `data:image/${ext};base64,${b64}`;
+                }
+            }
+        } catch (e) {
+            this.logger.warn('Logo não encontrado: ' + e.message);
+        }
+        return null;
+    }
+
+    async updateLogo(buffer: Buffer, mimeType: string): Promise<void> {
+        const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+        const assetsDir = path.join(process.cwd(), 'src', 'assets');
+        if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+        // Remove old logos
+        for (const f of ['logo.png', 'logo.jpg', 'logo.jpeg', 'logo.webp']) {
+            const fp = path.join(assetsDir, f);
+            if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        }
+        fs.writeFileSync(path.join(assetsDir, `logo.${ext}`), buffer);
+    }
+
     async generatePdf(data: MontadorPdfData): Promise<Buffer> {
-        const html = this.buildHtml(data);
+        const logoDataUrl = this.getLogoBase64();
+        const html = this.buildHtml(data, logoDataUrl);
         let browser: puppeteer.Browser | null = null;
 
         try {
@@ -52,8 +93,11 @@ export class MontadorPdfService {
         return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     }
 
-    private buildHtml(data: MontadorPdfData): string {
+    private buildHtml(data: MontadorPdfData, logoDataUrl: string | null): string {
         const rate = (data.montadorRate * 100).toFixed(0);
+        const logoHtml = logoDataUrl
+            ? `<img src="${logoDataUrl}" class="logo" alt="Logo" />`
+            : `<div class="logo-placeholder"></div>`;
 
         return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -63,7 +107,8 @@ export class MontadorPdfService {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #333; padding: 40px; }
     .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1e3a5f; padding-bottom: 16px; margin-bottom: 32px; }
-    .header .logo { max-height: 60px; }
+    .header .logo { max-height: 70px; max-width: 220px; object-fit: contain; }
+    .header .logo-placeholder { width: 120px; height: 50px; }
     .header .title { font-size: 22px; font-weight: 700; color: #1e3a5f; text-align: right; }
     .section { margin-bottom: 24px; }
     .section-title { font-size: 14px; font-weight: 700; color: #1e3a5f; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ddd; padding-bottom: 6px; margin-bottom: 12px; }
@@ -90,6 +135,7 @@ export class MontadorPdfService {
 </head>
 <body>
     <div class="header">
+        ${logoHtml}
         <div class="title">
             Pagamento de<br>Montador
         </div>

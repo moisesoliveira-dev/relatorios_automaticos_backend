@@ -9,7 +9,10 @@ import {
     Body,
     UseGuards,
     Res,
+    UploadedFile,
+    UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -132,6 +135,20 @@ export class GosacController {
     }
 
     // ===== Orçamentos (Proposals) Pontta =====
+
+    /**
+     * POST /api/gosac/logo
+     * Atualiza o logotipo da empresa usado nos PDFs
+     */
+    @Post('logo')
+    @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+    async uploadLogo(@UploadedFile() file: Express.Multer.File) {
+        if (!file) throw new Error('Nenhum arquivo enviado');
+        const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+        if (!allowed.includes(file.mimetype)) throw new Error('Formato inválido. Use PNG, JPG ou WebP.');
+        await this.montadorPdfService.updateLogo(file.buffer, file.mimetype);
+        return { message: 'Logo atualizado com sucesso' };
+    }
 
     /**
      * GET /api/gosac/proposals
