@@ -505,6 +505,10 @@ export class PonttaService {
             });
 
             const data = response.data;
+            if (Array.isArray(data) && data.length > 0) {
+                console.log('[PonttaItems] sample keys:', JSON.stringify(Object.keys(data[0])));
+                console.log('[PonttaItems] sample item:', JSON.stringify(data[0]));
+            }
             if (Array.isArray(data)) return data;
             return [];
         } catch (error) {
