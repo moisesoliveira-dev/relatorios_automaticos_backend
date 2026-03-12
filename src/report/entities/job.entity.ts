@@ -8,8 +8,8 @@ export class ScheduledJob {
     @Column()
     name: string;
 
-    @Column({ type: 'enum', enum: ['occurrences', 'monthly', 'custom'] })
-    reportType: 'occurrences' | 'monthly' | 'custom';
+    @Column({ type: 'enum', enum: ['occurrences', 'monthly', 'custom', 'gosac-grupos', 'gosac-pagamento-montador'] })
+    reportType: 'occurrences' | 'monthly' | 'custom' | 'gosac-grupos' | 'gosac-pagamento-montador';
 
     @Column({ type: 'enum', enum: ['daily', 'weekly', 'monthly'] })
     frequency: 'daily' | 'weekly' | 'monthly';

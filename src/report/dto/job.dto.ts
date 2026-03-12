@@ -4,8 +4,8 @@ export class CreateJobDto {
     @IsString()
     name: string;
 
-    @IsEnum(['occurrences', 'monthly', 'custom'])
-    reportType: 'occurrences' | 'monthly' | 'custom';
+    @IsEnum(['occurrences', 'monthly', 'custom', 'gosac-grupos', 'gosac-pagamento-montador'])
+    reportType: 'occurrences' | 'monthly' | 'custom' | 'gosac-grupos' | 'gosac-pagamento-montador';
 
     @IsEnum(['daily', 'weekly', 'monthly'])
     frequency: 'daily' | 'weekly' | 'monthly';
@@ -51,8 +51,8 @@ export class UpdateJobDto {
     name?: string;
 
     @IsOptional()
-    @IsEnum(['occurrences', 'monthly', 'custom'])
-    reportType?: 'occurrences' | 'monthly' | 'custom';
+    @IsEnum(['occurrences', 'monthly', 'custom', 'gosac-grupos', 'gosac-pagamento-montador'])
+    reportType?: 'occurrences' | 'monthly' | 'custom' | 'gosac-grupos' | 'gosac-pagamento-montador';
 
     @IsOptional()
     @IsEnum(['daily', 'weekly', 'monthly'])

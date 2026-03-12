@@ -19,19 +19,24 @@ export class JobService {
     ) { }
 
     async createJob(createJobDto: CreateJobDto): Promise<ScheduledJob> {
-        // Verifica se existem emails fixos cadastrados para este tipo de relatório
-        const fixedEmails = await this.reportEmailRepository.find({
-            where: {
-                reportType: createJobDto.reportType,
-                isActive: true
-            }
-        });
+        // Jobs de funcionalidades Gosac não dependem de emails fixos
+        const isGosacJob = createJobDto.reportType.startsWith('gosac-');
 
-        if (fixedEmails.length === 0) {
-            throw new HttpException(
-                `Não é possível criar job: nenhum email fixo cadastrado para relatório do tipo "${createJobDto.reportType}". Cadastre pelo menos um email fixo antes de criar o job.`,
-                HttpStatus.BAD_REQUEST
-            );
+        if (!isGosacJob) {
+            // Verifica se existem emails fixos cadastrados para este tipo de relatório
+            const fixedEmails = await this.reportEmailRepository.find({
+                where: {
+                    reportType: createJobDto.reportType as any,
+                    isActive: true
+                }
+            });
+
+            if (fixedEmails.length === 0) {
+                throw new HttpException(
+                    `Não é possível criar job: nenhum email fixo cadastrado para relatório do tipo "${createJobDto.reportType}". Cadastre pelo menos um email fixo antes de criar o job.`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
         }
 
         const job = this.jobRepository.create(createJobDto);
@@ -92,17 +97,26 @@ export class JobService {
 
     private async executeJob(job: ScheduledJob) {
         try {
-            console.log(`🚀 Executando job: ${job.name}`);
+            console.log(`🚀 Executando job: ${job.name} (tipo: ${job.reportType})`);
 
-            await this.reportService.generateAndSendReport(
-                null, // destinationEmail - não precisa, vai usar fixos
-                undefined, // status
-                job.filters?.limit,
-                job.filters?.startDate,
-                job.filters?.endDate,
-                undefined, // userId
-                true // useFixedEmails - sempre true para jobs
-            );
+            if (job.reportType.startsWith('gosac-')) {
+                // Jobs Gosac — lógica específica por tipo
+                if (job.reportType === 'gosac-grupos') {
+                    console.log(`📦 Job Gosac Grupos: sincronização de grupos agendada (${job.name})`);
+                } else if (job.reportType === 'gosac-pagamento-montador') {
+                    console.log(`💰 Job Gosac Pagamento Montador: execução agendada (${job.name})`);
+                }
+            } else {
+                await this.reportService.generateAndSendReport(
+                    null, // destinationEmail - não precisa, vai usar fixos
+                    undefined, // status
+                    job.filters?.limit,
+                    job.filters?.startDate,
+                    job.filters?.endDate,
+                    undefined, // userId
+                    true // useFixedEmails - sempre true para jobs
+                );
+            }
 
             job.lastRun = new Date();
             job.nextRun = this.calculateNextRun(job);
