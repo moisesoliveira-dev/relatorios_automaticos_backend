@@ -20,18 +20,23 @@ export class GoogleDriveService {
     }
 
     private async getDriveClient(): Promise<drive_v3.Drive> {
-        const clientId = await this.settingsService.findByKey('GOOGLE_CLIENT_ID');
-        const clientSecret = await this.settingsService.findByKey('GOOGLE_CLIENT_SECRET');
-        const refreshToken = await this.settingsService.findByKey('GOOGLE_REFRESH_TOKEN');
+        const clientEmail = await this.settingsService.findByKey('GOOGLE_SERVICE_ACCOUNT_EMAIL');
+        const privateKey = await this.settingsService.findByKey('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
 
-        if (!clientId || !clientSecret || !refreshToken) {
-            throw new Error('Credenciais do Google Drive não configuradas. Configure Client ID, Client Secret e Refresh Token nas configurações.');
+        if (!clientEmail || !privateKey) {
+            throw new Error('Credenciais do Google Drive não configuradas. Configure o e-mail e a chave privada da Service Account nas configurações.');
         }
 
-        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        // Suporta chave com \n literal (colada como string) ou com quebras de linha reais
+        const processedKey = privateKey.replace(/\\n/g, '\n');
 
-        return google.drive({ version: 'v3', auth: oauth2Client });
+        const auth = new google.auth.JWT({
+            email: clientEmail,
+            key: processedKey,
+            scopes: ['https://www.googleapis.com/auth/drive'],
+        });
+
+        return google.drive({ version: 'v3', auth });
     }
 
     /**

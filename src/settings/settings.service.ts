@@ -19,8 +19,7 @@ export class SettingsService {
         'PONTTA_API_KEY',
         'PONTTA_PASSWORD',
         'ENCRYPTION_KEY',
-        'GOOGLE_CLIENT_SECRET',
-        'GOOGLE_REFRESH_TOKEN',
+        'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
     ];
 
     constructor(
@@ -187,10 +186,9 @@ export class SettingsService {
 
             // Google Drive
             { key: 'GOOGLE_DRIVE_ENABLED', value: 'false', category: 'drive', description: 'Habilitar integração com Google Drive' },
-            { key: 'GOOGLE_CLIENT_ID', value: '', category: 'drive', description: 'Client ID do Google OAuth2' },
-            { key: 'GOOGLE_CLIENT_SECRET', value: '', category: 'drive', description: 'Client Secret do Google OAuth2' },
-            { key: 'GOOGLE_REFRESH_TOKEN', value: '', category: 'drive', description: 'Refresh Token do Google OAuth2' },
-            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive' },
+            { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', value: '', category: 'drive', description: 'E-mail da Service Account (ex: nome@projeto.iam.gserviceaccount.com)' },
+            { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', value: '', category: 'drive', description: 'Chave privada da Service Account (campo private_key do JSON)' },
+            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive (compartilhar com a Service Account)' },
         ];
 
         for (const def of defaults) {
