@@ -26,6 +26,7 @@ async function bootstrap() {
     origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
+    exposedHeaders: ['X-Drive-Success', 'X-Drive-Error'],
   });
 
   const port = process.env.PORT ?? 3000;

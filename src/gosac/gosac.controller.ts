@@ -217,16 +217,21 @@ export class GosacController {
         if (body.sendToDrive) {
             try {
                 const driveEnabled = await this.googleDriveService.isEnabled();
-                if (driveEnabled) {
+                if (!driveEnabled) {
+                    res.set('X-Drive-Error', 'Google Drive desabilitado. Ative em Configurações > GOOGLE_DRIVE_ENABLED.');
+                } else {
                     const monthFolderId = await this.googleDriveService.ensureMonthFolderFromSettings();
-                    if (monthFolderId) {
+                    if (!monthFolderId) {
+                        res.set('X-Drive-Error', 'ID da pasta raiz não configurado. Preencha GOOGLE_DRIVE_FOLDER_ID nas Configurações.');
+                    } else {
                         await this.googleDriveService.uploadPdf(pdfBuffer, filename, monthFolderId);
+                        res.set('X-Drive-Success', 'true');
                     }
                 }
             } catch (driveError) {
-                // Log but don't block PDF download
-                console.error('Erro ao enviar PDF para o Drive:', driveError?.message || driveError);
-                res.set('X-Drive-Error', 'Falha ao enviar para o Drive. Verifique as configurações.');
+                const msg = driveError?.message || 'Erro desconhecido';
+                console.error('Erro ao enviar PDF para o Drive:', msg);
+                res.set('X-Drive-Error', msg.length > 200 ? msg.slice(0, 200) + '...' : msg);
             }
         }
 
