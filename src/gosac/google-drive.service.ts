@@ -65,6 +65,8 @@ export class GoogleDriveService {
             q: query,
             fields: 'files(id, name)',
             spaces: 'drive',
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
         });
 
         if (list.data.files && list.data.files.length > 0) {
@@ -79,6 +81,7 @@ export class GoogleDriveService {
                 parents: [parentFolderId],
             },
             fields: 'id',
+            supportsAllDrives: true,
         });
 
         this.logger.log(`Pasta do mês criada: "${monthName}" (${created.data.id})`);
@@ -108,6 +111,7 @@ export class GoogleDriveService {
                 body: stream,
             },
             fields: 'id, name, webViewLink',
+            supportsAllDrives: true,
         });
 
         this.logger.log(`PDF enviado ao Drive: "${filename}" (id: ${response.data.id})`);

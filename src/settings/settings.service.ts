@@ -188,7 +188,7 @@ export class SettingsService {
             { key: 'GOOGLE_DRIVE_ENABLED', value: 'false', category: 'drive', description: 'Habilitar integração com Google Drive' },
             { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', value: '', category: 'drive', description: 'E-mail da Service Account (ex: nome@projeto.iam.gserviceaccount.com)' },
             { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', value: '', category: 'drive', description: 'Chave privada da Service Account (campo private_key do JSON)' },
-            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive (compartilhar com a Service Account)' },
+            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Shared Drive (compartilhar com a Service Account como membro)' },
         ];
 
         for (const def of defaults) {
