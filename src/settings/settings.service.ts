@@ -18,7 +18,9 @@ export class SettingsService {
         'API_KEY',
         'PONTTA_API_KEY',
         'PONTTA_PASSWORD',
-        'ENCRYPTION_KEY'
+        'ENCRYPTION_KEY',
+        'GOOGLE_CLIENT_SECRET',
+        'GOOGLE_REFRESH_TOKEN',
     ];
 
     constructor(
@@ -182,6 +184,13 @@ export class SettingsService {
             // Jobs
             { key: 'JOB_ENABLED', value: 'true', category: 'jobs', description: 'Habilitar execução de jobs' },
             { key: 'JOB_MAX_RETRIES', value: '3', category: 'jobs', description: 'Máximo de tentativas' },
+
+            // Google Drive
+            { key: 'GOOGLE_DRIVE_ENABLED', value: 'false', category: 'drive', description: 'Habilitar integração com Google Drive' },
+            { key: 'GOOGLE_CLIENT_ID', value: '', category: 'drive', description: 'Client ID do Google OAuth2' },
+            { key: 'GOOGLE_CLIENT_SECRET', value: '', category: 'drive', description: 'Client Secret do Google OAuth2' },
+            { key: 'GOOGLE_REFRESH_TOKEN', value: '', category: 'drive', description: 'Refresh Token do Google OAuth2' },
+            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive' },
         ];
 
         for (const def of defaults) {

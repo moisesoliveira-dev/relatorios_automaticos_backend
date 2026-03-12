@@ -1,0 +1,120 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { google, drive_v3 } from 'googleapis';
+import { Readable } from 'stream';
+import { SettingsService } from '../settings/settings.service';
+
+@Injectable()
+export class GoogleDriveService {
+    private readonly logger = new Logger(GoogleDriveService.name);
+
+    private readonly PT_BR_MONTHS = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    ];
+
+    constructor(private readonly settingsService: SettingsService) { }
+
+    async isEnabled(): Promise<boolean> {
+        const value = await this.settingsService.findByKey('GOOGLE_DRIVE_ENABLED');
+        return value === 'true';
+    }
+
+    private async getDriveClient(): Promise<drive_v3.Drive> {
+        const clientId = await this.settingsService.findByKey('GOOGLE_CLIENT_ID');
+        const clientSecret = await this.settingsService.findByKey('GOOGLE_CLIENT_SECRET');
+        const refreshToken = await this.settingsService.findByKey('GOOGLE_REFRESH_TOKEN');
+
+        if (!clientId || !clientSecret || !refreshToken) {
+            throw new Error('Credenciais do Google Drive não configuradas. Configure Client ID, Client Secret e Refresh Token nas configurações.');
+        }
+
+        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+        return google.drive({ version: 'v3', auth: oauth2Client });
+    }
+
+    /**
+     * Lê o ID da pasta raiz das settings e garante que a subpasta do mês existe.
+     * Retorna o ID da subpasta do mês, ou null se a pasta raiz não estiver configurada.
+     */
+    async ensureMonthFolderFromSettings(): Promise<string | null> {
+        const rootFolderId = await this.settingsService.findByKey('GOOGLE_DRIVE_FOLDER_ID');
+        if (!rootFolderId) return null;
+        return this.ensureMonthFolder(rootFolderId);
+    }
+
+    /**
+     * Garante que existe uma subpasta com o nome do mês atual (ex: "Março 2025")
+     * dentro da pasta pai. Cria se não existir.
+     * Retorna o ID da subpasta.
+     */
+    async ensureMonthFolder(parentFolderId: string): Promise<string> {
+        const drive = await this.getDriveClient();
+        const now = new Date();
+        const monthName = `${this.PT_BR_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+
+        // Busca pasta existente com esse nome dentro do pai
+        const query = `mimeType='application/vnd.google-apps.folder' and name='${monthName}' and '${parentFolderId}' in parents and trashed=false`;
+        const list = await drive.files.list({
+            q: query,
+            fields: 'files(id, name)',
+            spaces: 'drive',
+        });
+
+        if (list.data.files && list.data.files.length > 0) {
+            return list.data.files[0].id!;
+        }
+
+        // Cria a pasta
+        const created = await drive.files.create({
+            requestBody: {
+                name: monthName,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [parentFolderId],
+            },
+            fields: 'id',
+        });
+
+        this.logger.log(`Pasta do mês criada: "${monthName}" (${created.data.id})`);
+        return created.data.id!;
+    }
+
+    /**
+     * Faz upload de um buffer PDF para o Google Drive.
+     * @param buffer - Conteúdo do PDF
+     * @param filename - Nome do arquivo (ex: "Pagamento Montador - João Silva - Sala.pdf")
+     * @param folderId - ID da pasta de destino no Drive
+     * @returns ID do arquivo criado no Drive
+     */
+    async uploadPdf(buffer: Buffer, filename: string, folderId: string): Promise<string> {
+        const drive = await this.getDriveClient();
+
+        const stream = Readable.from(buffer);
+
+        const response = await drive.files.create({
+            requestBody: {
+                name: filename,
+                mimeType: 'application/pdf',
+                parents: [folderId],
+            },
+            media: {
+                mimeType: 'application/pdf',
+                body: stream,
+            },
+            fields: 'id, name, webViewLink',
+        });
+
+        this.logger.log(`PDF enviado ao Drive: "${filename}" (id: ${response.data.id})`);
+        return response.data.id!;
+    }
+
+    /**
+     * Gera o nome do arquivo PDF incluindo o nome do cliente e do ambiente.
+     */
+    sanitizePdfFilename(customerName: string, environmentName: string): string {
+        const sanitize = (s: string) =>
+            s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim();
+        return `Pagamento Montador - ${sanitize(customerName)} - ${sanitize(environmentName)}.pdf`;
+    }
+}

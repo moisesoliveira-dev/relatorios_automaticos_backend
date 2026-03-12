@@ -21,6 +21,7 @@ import { UserRole } from '../users/entities/user.entity';
 import { GosacService } from './gosac.service';
 import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './dto/gosac.dto';
 import { MontadorPdfService } from './montador-pdf.service';
+import { GoogleDriveService } from './google-drive.service';
 
 @Controller('gosac')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,6 +30,7 @@ export class GosacController {
     constructor(
         private readonly gosacService: GosacService,
         private readonly montadorPdfService: MontadorPdfService,
+        private readonly googleDriveService: GoogleDriveService,
     ) { }
 
     /**
@@ -170,7 +172,8 @@ export class GosacController {
 
     /**
      * POST /api/gosac/proposals/montador-pdf
-     * Gera PDF de pagamento do montador para um ambiente
+     * Gera PDF de pagamento do montador para um ambiente.
+     * Se sendToDrive=true e o Drive estiver configurado, também faz upload.
      */
     @Post('proposals/montador-pdf')
     async generateMontadorPdf(
@@ -183,6 +186,7 @@ export class GosacController {
             deliveryDate?: string;
             assemblyStartDate?: string;
             assemblyEndDate?: string;
+            sendToDrive?: boolean;
         },
         @Res() res: Response,
     ) {
@@ -204,8 +208,27 @@ export class GosacController {
             assemblyEndDate: body.assemblyEndDate || '',
         });
 
-        const sanitizedEnv = body.environmentName.replace(/[^a-zA-Z0-9À-ú\s_-]/g, '').trim();
-        const filename = `Pagamento_Montador_${body.proposalCode}_${sanitizedEnv}.pdf`;
+        const filename = this.googleDriveService.sanitizePdfFilename(
+            body.customerName,
+            body.environmentName,
+        );
+
+        // Upload to Google Drive if requested and enabled
+        if (body.sendToDrive) {
+            try {
+                const driveEnabled = await this.googleDriveService.isEnabled();
+                if (driveEnabled) {
+                    const monthFolderId = await this.googleDriveService.ensureMonthFolderFromSettings();
+                    if (monthFolderId) {
+                        await this.googleDriveService.uploadPdf(pdfBuffer, filename, monthFolderId);
+                    }
+                }
+            } catch (driveError) {
+                // Log but don't block PDF download
+                console.error('Erro ao enviar PDF para o Drive:', driveError?.message || driveError);
+                res.set('X-Drive-Error', 'Falha ao enviar para o Drive. Verifique as configurações.');
+            }
+        }
 
         res.set({
             'Content-Type': 'application/pdf',

@@ -9,6 +9,7 @@ import { GosacSalesOrderLink } from './entities/gosac-sales-order-link.entity';
 import { PonttaModule } from '../pontta/pontta.module';
 import { SettingsModule } from '../settings/settings.module';
 import { MontadorPdfService } from './montador-pdf.service';
+import { GoogleDriveService } from './google-drive.service';
 
 @Module({
     imports: [
@@ -17,7 +18,7 @@ import { MontadorPdfService } from './montador-pdf.service';
         SettingsModule,
     ],
     controllers: [GosacController, GosacWebhookController],
-    providers: [GosacService, MontadorPdfService],
+    providers: [GosacService, MontadorPdfService, GoogleDriveService],
     exports: [GosacService],
 })
 export class GosacModule { }
