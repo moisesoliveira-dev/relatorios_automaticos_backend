@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SettingsService } from '../settings/settings.service';
 
 export interface MontadorPdfData {
     proposalCode: string;
@@ -21,9 +22,16 @@ export interface MontadorPdfData {
 export class MontadorPdfService {
     private readonly logger = new Logger(MontadorPdfService.name);
 
-    private readonly logoPath = path.join(process.cwd(), 'src', 'assets', 'logo.png');
+    constructor(private readonly settingsService: SettingsService) { }
 
-    private getLogoBase64(): string | null {
+    private async getLogoBase64(): Promise<string | null> {
+        // 1. Tenta banco (persistente entre deploys)
+        try {
+            const stored = await this.settingsService.findByKey('COMPANY_LOGO_BASE64');
+            if (stored) return stored;
+        } catch { /* ignora */ }
+
+        // 2. Fallback: arquivo no filesystem (compatibilidade)
         try {
             const candidates = [
                 path.join(process.cwd(), 'src', 'assets', 'logo.png'),
@@ -42,25 +50,26 @@ export class MontadorPdfService {
                 }
             }
         } catch (e) {
-            this.logger.warn('Logo não encontrado: ' + e.message);
+            this.logger.warn('Logo não encontrado no filesystem: ' + e.message);
         }
         return null;
     }
 
     async updateLogo(buffer: Buffer, mimeType: string): Promise<void> {
         const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-        const assetsDir = path.join(process.cwd(), 'src', 'assets');
-        if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
-        // Remove old logos
-        for (const f of ['logo.png', 'logo.jpg', 'logo.jpeg', 'logo.webp']) {
-            const fp = path.join(assetsDir, f);
-            if (fs.existsSync(fp)) fs.unlinkSync(fp);
-        }
-        fs.writeFileSync(path.join(assetsDir, `logo.${ext}`), buffer);
+        const dataUrl = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${buffer.toString('base64')}`;
+
+        // Salva no banco (persistente)
+        await this.settingsService.upsert(
+            'COMPANY_LOGO_BASE64',
+            dataUrl,
+            'general',
+            'Logo da empresa em base64 (gerado automaticamente)',
+        );
     }
 
     async generatePdf(data: MontadorPdfData): Promise<Buffer> {
-        const logoDataUrl = this.getLogoBase64();
+        const logoDataUrl = await this.getLogoBase64();
         const html = this.buildHtml(data, logoDataUrl);
         let browser: puppeteer.Browser | null = null;
 
