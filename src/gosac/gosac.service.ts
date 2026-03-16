@@ -92,8 +92,12 @@ export class GosacService {
                 ? data
                 : (data?.tickets || []);
 
-            // Filtra apenas grupos (isGroup === true)
-            const tickets = allTickets.filter(t => t.isGroup === true);
+            // Filtra apenas grupos (isGroup === true) com prefixo MONT. no nome do contato/grupo
+            const PREFIX = 'MONT.';
+            const tickets = allTickets.filter((t) => {
+                const groupName = (t.contact?.name || '').trim().toUpperCase();
+                return t.isGroup === true && groupName.startsWith(PREFIX);
+            });
 
             return tickets;
         } catch (error) {
