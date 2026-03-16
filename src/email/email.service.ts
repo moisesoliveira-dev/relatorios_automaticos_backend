@@ -160,8 +160,8 @@ export class EmailService {
         <p>Segue em anexo o relatório de ocorrências gerado em <strong>${dateStr}</strong> às <strong>${timeStr}</strong>.</p>
         <p>O arquivo está em formato <strong>${isExcel ? 'Excel (.xlsx)' : 'CSV'}</strong> e pode ser aberto no Microsoft Excel, Google Sheets ou LibreOffice.</p>
         <br>
-        <p>Atenciosamente,</p>
-        <p><strong>Sistema de Relatórios Automáticos</strong></p>
+                <p>Atenciosamente,</p>
+                <p><strong>CMM System</strong></p>
       `,
             attachments: [
                 {

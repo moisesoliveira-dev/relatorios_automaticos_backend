@@ -166,12 +166,12 @@ export class UsersService {
         try {
             await this.emailService.sendEmail({
                 to: email,
-                subject: 'Convite para Sistema de Relatórios Automáticos',
+                subject: 'Convite para CMM System',
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                         <h2 style="color: #8B5CF6;">👋 Você foi convidado!</h2>
                         <p>Olá,</p>
-                        <p><strong>${inviter.name}</strong> convidou você para fazer parte do Sistema de Relatórios Automáticos.</p>
+                        <p><strong>${inviter.name}</strong> convidou você para fazer parte do CMM System.</p>
                         <p>Seu perfil será: <strong>${role}</strong></p>
                         
                         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
@@ -209,7 +209,7 @@ export class UsersService {
                         
                         <p style="font-size: 12px; color: #94A3B8;">
                             Atenciosamente,<br>
-                            <strong>Sistema de Relatórios Automáticos</strong>
+                            <strong>CMM System</strong>
                         </p>
                     </div>
                 `,
