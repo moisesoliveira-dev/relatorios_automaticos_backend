@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { CreateSettingDto, UpdateSettingDto, BulkUpdateSettingsDto } from './dto/setting.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -59,5 +59,13 @@ export class SettingsController {
     async initialize() {
         await this.settingsService.initializeDefaults();
         return { message: 'Configurações inicializadas com sucesso' };
+    }
+
+    @Get('tabs/navigation')
+    @Roles(UserRole.MASTER, UserRole.ADMIN, UserRole.MANAGER, UserRole.USER)
+    async getNavigationTabs(@Request() req: any) {
+        const role = req.user?.role as UserRole;
+        const tabs = await this.settingsService.getTabsForRole(role);
+        return { role, tabs };
     }
 }

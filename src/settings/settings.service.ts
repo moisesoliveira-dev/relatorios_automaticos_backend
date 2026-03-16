@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Setting } from './entities/setting.entity';
 import { CreateSettingDto, UpdateSettingDto } from './dto/setting.dto';
+import { UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class SettingsService {
@@ -185,6 +186,12 @@ export class SettingsService {
             { key: 'JOB_ENABLED', value: 'true', category: 'jobs', description: 'Habilitar execução de jobs' },
             { key: 'JOB_MAX_RETRIES', value: '3', category: 'jobs', description: 'Máximo de tentativas' },
 
+            // Controle de abas por perfil (persistido no banco)
+            { key: 'TABS_MASTER', value: 'dashboard,reports,jobs,gosac-pontta,usuarios,configuracoes', category: 'access', description: 'Abas visíveis para perfil master' },
+            { key: 'TABS_ADMIN', value: 'dashboard,reports,jobs,gosac-pontta,usuarios', category: 'access', description: 'Abas visíveis para perfil admin' },
+            { key: 'TABS_MANAGER', value: 'dashboard,reports,gosac-pontta', category: 'access', description: 'Abas visíveis para perfil manager' },
+            { key: 'TABS_USER', value: 'dashboard,reports', category: 'access', description: 'Abas visíveis para perfil user' },
+
             // Google Drive
             { key: 'GOOGLE_DRIVE_ENABLED', value: 'false', category: 'drive', description: 'Habilitar integração com Google Drive' },
             { key: 'GOOGLE_CLIENT_ID', value: process.env.GOOGLE_CLIENT_ID || '', category: 'drive', description: 'Client ID do Google OAuth2' },
@@ -203,6 +210,31 @@ export class SettingsService {
         // Limpeza de chaves legadas da abordagem com Service Account
         await this.delete('GOOGLE_SERVICE_ACCOUNT_EMAIL');
         await this.delete('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
+    }
+
+    private getRoleTabsKey(role: UserRole): string {
+        switch (role) {
+            case UserRole.MASTER:
+                return 'TABS_MASTER';
+            case UserRole.ADMIN:
+                return 'TABS_ADMIN';
+            case UserRole.MANAGER:
+                return 'TABS_MANAGER';
+            case UserRole.USER:
+            default:
+                return 'TABS_USER';
+        }
+    }
+
+    async getTabsForRole(role: UserRole): Promise<string[]> {
+        const key = this.getRoleTabsKey(role);
+        const raw = await this.findByKey(key);
+        if (!raw) return [];
+
+        return raw
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
     }
 
     // Retorna configurações SMTP para o EmailService
