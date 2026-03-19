@@ -238,12 +238,11 @@ export class GosacController {
         },
         res: Response,
     ) {
-        const ponttaDiscount = body.ponttaDiscount || 0;
         const additionalDiscount = body.additionalDiscount ?? 6;
         const montadorRate = 0.07;
-        // Valor original no PDF já considera o desconto vindo do Pontta
-        const originalValue = body.environmentValue * (1 - ponttaDiscount / 100);
-        // Desconto aplicado na empresa (fixo) sobre o valor já descontado do Pontta
+        // O valor enviado já vem com o desconto do Pontta aplicado.
+        const originalValue = body.environmentValue;
+        // Aplica apenas o desconto adicional fixo da empresa.
         const discountedValue = originalValue * (1 - additionalDiscount / 100);
         const montadorPayment = discountedValue * montadorRate;
 
