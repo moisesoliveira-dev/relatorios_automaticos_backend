@@ -282,22 +282,37 @@ export class PonttaService {
      */
     async searchSalesOrders(
         token: string,
-        query: string,
+        query?: string,
         page: number = 0,
         size: number = 25,
     ): Promise<any[]> {
         try {
             const url = `${this.apiUrl}/sales-orders/summary`;
-            console.log(`🔍 Buscando pedidos de venda Pontta: "${query}"`);
+            console.log(`🔍 Buscando pedidos de venda Pontta: "${query || '(inicial)'}"`);
             // Monta a URL manualmente para garantir que sort=saleDate,number,desc
             // seja enviado exatamente como o app Pontta envia (sem encoding das vírgulas)
             const params = new URLSearchParams({
-                q: query,
                 status: 'VALID',
                 page: String(page),
                 size: String(size),
             });
-            const response = await axios.get(`${url}?${params.toString()}&sort=saleDate,number,desc`, {
+            if (query && query.trim().length > 0) {
+                params.set('q', query.trim());
+            }
+
+            const requestUrl = `${url}?${params.toString()}&sort=saleDate,number,desc`;
+
+            const parseItems = (data: any): any[] => {
+                // API pode retornar array, { content: [] } ou payload aninhado
+                if (Array.isArray(data)) return data;
+                if (Array.isArray(data?.content)) return data.content;
+                if (Array.isArray(data?.data?.content)) return data.data.content;
+                if (Array.isArray(data?.data)) return data.data;
+                return [];
+            };
+
+            // 1) Tenta com Businessunit (comportamento atual)
+            const responseWithBu = await axios.get(requestUrl, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -305,12 +320,23 @@ export class PonttaService {
                 },
             });
 
-            const data = response.data;
-            console.log(`✅ Resposta pedidos de venda (tipo: ${typeof data}, isArray: ${Array.isArray(data)}):`, JSON.stringify(data).substring(0, 300));
-            // API pode retornar { content: [...] } (paginado) ou array direto
-            if (Array.isArray(data)) return data;
-            if (data?.content && Array.isArray(data.content)) return data.content;
-            return [];
+            const itemsWithBu = parseItems(responseWithBu.data);
+            console.log(`✅ Resposta pedidos de venda c/ Businessunit: ${itemsWithBu.length} item(ns)`);
+            if (itemsWithBu.length > 0 || !!query) {
+                return itemsWithBu;
+            }
+
+            // 2) Fallback sem Businessunit para alinhar com rota manual testada pelo usuário
+            const responseWithoutBu = await axios.get(requestUrl, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const itemsWithoutBu = parseItems(responseWithoutBu.data);
+            console.log(`✅ Resposta pedidos de venda sem Businessunit: ${itemsWithoutBu.length} item(ns)`);
+            return itemsWithoutBu;
         } catch (error) {
             const ponttaError = error.response?.data;
             const ponttaStatus = error.response?.status;
@@ -528,5 +554,61 @@ export class PonttaService {
                 ponttaStatus || HttpStatus.BAD_GATEWAY,
             );
         }
+    }
+
+    /**
+     * Busca os itens (ambientes) de um pedido de venda no Pontta.
+     * Alguns ambientes usam rotas diferentes no backend do Pontta, por isso há fallback.
+     */
+    async getSalesOrderItems(token: string, salesOrderId: string): Promise<any[]> {
+        const candidates = [
+            `${this.apiUrl}/sales-orders/${salesOrderId}/items`,
+            `${this.apiUrl}/sales-orders/${salesOrderId}/versions/items`,
+            `${this.apiUrl}/sales-orders/items/${salesOrderId}`,
+        ];
+
+        for (const url of candidates) {
+            try {
+                const response = await axios.get(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        Businessunit: this.businessUnitId,
+                    },
+                });
+
+                const data = response.data;
+                const items = Array.isArray(data) ? data : (data?.content || []);
+                if (Array.isArray(items)) {
+                    if (items.length > 0) {
+                        console.log('[PonttaSalesOrderItems] sample keys:', JSON.stringify(Object.keys(items[0])));
+                        console.log('[PonttaSalesOrderItems] sample item:', JSON.stringify(items[0]));
+                    }
+                    return items;
+                }
+            } catch (error) {
+                const status = error?.response?.status;
+                // Continua tentando os outros candidatos em caso de 404/405
+                if (status === 404 || status === 405) continue;
+
+                if (status === 401) {
+                    throw new HttpException(
+                        'Token Pontta expirado ou inválido.',
+                        HttpStatus.UNAUTHORIZED,
+                    );
+                }
+
+                const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+                throw new HttpException(
+                    `Falha ao buscar itens do pedido de venda: ${detail}`,
+                    status || HttpStatus.BAD_GATEWAY,
+                );
+            }
+        }
+
+        throw new HttpException(
+            'Não foi possível localizar uma rota válida para itens do pedido de venda no Pontta.',
+            HttpStatus.NOT_FOUND,
+        );
     }
 }

@@ -107,10 +107,7 @@ export class GosacController {
      * Pesquisa pedidos de venda no Pontta
      */
     @Get('sales-orders/search')
-    async searchSalesOrders(@Query('q') q: string) {
-        if (!q || q.trim().length === 0) {
-            return [];
-        }
+    async searchSalesOrders(@Query('q') q?: string) {
         return this.gosacService.searchSalesOrders(q);
     }
 
@@ -171,18 +168,29 @@ export class GosacController {
     }
 
     /**
+     * GET /api/gosac/sales-orders/:id/items
+     * Busca os ambientes (itens) de um pedido de venda
+     */
+    @Get('sales-orders/:id/items')
+    async getSalesOrderItems(@Param('id') id: string) {
+        return this.gosacService.getSalesOrderItems(id);
+    }
+
+    /**
      * POST /api/gosac/proposals/montador-pdf
      * Gera PDF de pagamento do montador para um ambiente.
      * Se sendToDrive=true e o Drive estiver configurado, também faz upload.
      */
     @Post('proposals/montador-pdf')
+    @Post('sales-orders/montador-pdf')
     async generateMontadorPdf(
         @Body() body: {
             proposalCode: string;
             customerName: string;
             environmentName: string;
             environmentValue: number;
-            discount: number;
+            ponttaDiscount?: number;
+            additionalDiscount?: number;
             deliveryDate?: string;
             assemblyStartDate?: string;
             assemblyEndDate?: string;
@@ -190,16 +198,21 @@ export class GosacController {
         },
         @Res() res: Response,
     ) {
+        const ponttaDiscount = body.ponttaDiscount || 0;
+        const additionalDiscount = body.additionalDiscount ?? 6;
         const montadorRate = 0.07;
-        const discountedValue = body.environmentValue * (1 - (body.discount || 0) / 100);
+        // Valor original no PDF já considera o desconto vindo do Pontta
+        const originalValue = body.environmentValue * (1 - ponttaDiscount / 100);
+        // Desconto aplicado na empresa (fixo) sobre o valor já descontado do Pontta
+        const discountedValue = originalValue * (1 - additionalDiscount / 100);
         const montadorPayment = discountedValue * montadorRate;
 
         const pdfBuffer = await this.montadorPdfService.generatePdf({
             proposalCode: body.proposalCode,
             customerName: body.customerName,
             environmentName: body.environmentName,
-            environmentValue: body.environmentValue,
-            discount: body.discount || 0,
+            environmentValue: originalValue,
+            discount: additionalDiscount,
             discountedValue,
             montadorRate,
             montadorPayment,

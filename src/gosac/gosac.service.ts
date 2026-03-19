@@ -189,7 +189,7 @@ export class GosacService {
 
     // ===== Pedidos de Venda Pontta =====
 
-    async searchSalesOrders(query: string): Promise<any[]> {
+    async searchSalesOrders(query?: string): Promise<any[]> {
         let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
         try {
             const results = await this.ponttaService.searchSalesOrders(token, query);
@@ -480,6 +480,20 @@ export class GosacService {
                 this.ponttaService.clearTokenCache(this.ponttaEmail);
                 token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
                 return await this.ponttaService.getProposalItems(token, proposalId);
+            }
+            throw error;
+        }
+    }
+
+    async getSalesOrderItems(salesOrderId: string): Promise<any[]> {
+        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        try {
+            return await this.ponttaService.getSalesOrderItems(token, salesOrderId);
+        } catch (error) {
+            if (error?.status === 401 || error?.response?.status === 401) {
+                this.ponttaService.clearTokenCache(this.ponttaEmail);
+                token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+                return await this.ponttaService.getSalesOrderItems(token, salesOrderId);
             }
             throw error;
         }
