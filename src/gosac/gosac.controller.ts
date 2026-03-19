@@ -182,8 +182,7 @@ export class GosacController {
      * Se sendToDrive=true e o Drive estiver configurado, também faz upload.
      */
     @Post('proposals/montador-pdf')
-    @Post('sales-orders/montador-pdf')
-    async generateMontadorPdf(
+    async generateMontadorPdfFromProposal(
         @Body() body: {
             proposalCode: string;
             customerName: string;
@@ -197,6 +196,47 @@ export class GosacController {
             sendToDrive?: boolean;
         },
         @Res() res: Response,
+    ) {
+        return this.generateMontadorPdf(body, res);
+    }
+
+    /**
+     * POST /api/gosac/sales-orders/montador-pdf
+     * Gera PDF de pagamento do montador para um ambiente usando pedido de venda.
+     */
+    @Post('sales-orders/montador-pdf')
+    async generateMontadorPdfFromSalesOrder(
+        @Body() body: {
+            proposalCode: string;
+            customerName: string;
+            environmentName: string;
+            environmentValue: number;
+            ponttaDiscount?: number;
+            additionalDiscount?: number;
+            deliveryDate?: string;
+            assemblyStartDate?: string;
+            assemblyEndDate?: string;
+            sendToDrive?: boolean;
+        },
+        @Res() res: Response,
+    ) {
+        return this.generateMontadorPdf(body, res);
+    }
+
+    private async generateMontadorPdf(
+        body: {
+            proposalCode: string;
+            customerName: string;
+            environmentName: string;
+            environmentValue: number;
+            ponttaDiscount?: number;
+            additionalDiscount?: number;
+            deliveryDate?: string;
+            assemblyStartDate?: string;
+            assemblyEndDate?: string;
+            sendToDrive?: boolean;
+        },
+        res: Response,
     ) {
         const ponttaDiscount = body.ponttaDiscount || 0;
         const additionalDiscount = body.additionalDiscount ?? 6;
