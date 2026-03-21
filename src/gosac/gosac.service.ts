@@ -56,11 +56,10 @@ export class GosacService {
     }
 
     /**
-     * Pesquisa tickets no GOSAC que comecem com "Anexo" (case-insensitive)
+     * Pesquisa tickets no GOSAC sem filtros locais de prefixo/isGroup.
      */
     async searchTickets(searchParam: string): Promise<GosacTicket[]> {
         try {
-            // Garante case-insensitive: busca com a string como recebida
             const query = searchParam.trim();
             if (!query) {
                 return [];
@@ -92,14 +91,7 @@ export class GosacService {
                 ? data
                 : (data?.tickets || []);
 
-            // Filtra apenas grupos (isGroup === true) com prefixo MONT. no nome do contato/grupo
-            const PREFIX = 'MONT.';
-            const tickets = allTickets.filter((t) => {
-                const groupName = (t.contact?.name || '').trim().toUpperCase();
-                return t.isGroup === true && groupName.startsWith(PREFIX);
-            });
-
-            return tickets;
+            return allTickets;
         } catch (error) {
             console.error('❌ Erro ao buscar tickets no GOSAC:', error.response?.data || error.message);
             throw new HttpException(
