@@ -274,7 +274,7 @@ export class GosacService {
             const userIdStr = await this.settingsService.findByKey('GOSAC_TICKET_USER_ID');
             const queueIdStr = await this.settingsService.findByKey('GOSAC_TICKET_QUEUE_ID');
             const userId = parseInt(userIdStr || '49', 10);
-            const queueId = parseInt(queueIdStr || '57', 10);
+            const queueId = parseInt(queueIdStr || '58', 10);
             const url = `${this.gosacBaseUrl}/api/tickets/${ticketId}`;
             await axios.put(url, { userId, queueId, status: 'open', obs: '' }, {
                 headers: {
