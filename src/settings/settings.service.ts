@@ -176,7 +176,7 @@ export class SettingsService {
             { key: 'PONTTA_PASSWORD', value: process.env.PONTTA_PASSWORD || '', category: 'api', description: 'Senha Pontta' },
 
             // GOSAC - Ticket ao vincular pedido de venda
-            { key: 'GOSAC_TICKET_USER_ID', value: '49', category: 'api', description: 'ID do usuário responsável ao vincular pedido ao grupo GOSAC' },
+            { key: 'GOSAC_TICKET_USER_ID', value: '71', category: 'api', description: 'ID do usuário responsável ao vincular pedido ao grupo GOSAC' },
             { key: 'GOSAC_TICKET_QUEUE_ID', value: '58', category: 'api', description: 'ID da fila (departamento) ao vincular pedido ao grupo GOSAC' },
 
             // Frontend
