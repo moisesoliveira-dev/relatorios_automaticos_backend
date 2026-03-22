@@ -69,6 +69,23 @@ export class MontadorPdfService {
     }
 
     async generatePdf(data: MontadorPdfData): Promise<Buffer> {
+        this.logger.log(`[MontadorPdf] Dados recebidos para renderização: ${JSON.stringify(data)}`);
+
+        const previewValues = {
+            customerName: data.customerName,
+            proposalCode: data.proposalCode,
+            environmentName: data.environmentName,
+            environmentValue: this.formatCurrency(data.environmentValue),
+            discountPercent: `${data.discount.toFixed(1)}%`,
+            discountedValue: this.formatCurrency(data.discountedValue),
+            montadorRatePercent: `${(data.montadorRate * 100).toFixed(0)}%`,
+            montadorPayment: this.formatCurrency(data.montadorPayment),
+            deliveryDate: data.deliveryDate || '____/____/________',
+            assemblyStartDate: data.assemblyStartDate || '____/____/________',
+            assemblyEndDate: data.assemblyEndDate || '____/____/________',
+        };
+        this.logger.log(`[MontadorPdf] Valores finais exibidos no PDF: ${JSON.stringify(previewValues)}`);
+
         const logoDataUrl = await this.getLogoBase64();
         const html = this.buildHtml(data, logoDataUrl);
         let browser: puppeteer.Browser | null = null;

@@ -189,6 +189,9 @@ export class GosacService {
                 ponttaId: item.id,
                 code: item.code || item.number || '',
                 customerName: item.customer?.name || item.customerName || '',
+                value: item.total ?? item.value ?? 0,
+                saleDate: item.saleDate || null,
+                status: item.valid ? 'VALID' : (item.canceled ? 'CANCELED' : null),
             }));
         } catch (error) {
             // Se foi 401, limpa o cache e tenta uma vez com token novo
@@ -201,6 +204,9 @@ export class GosacService {
                     ponttaId: item.id,
                     code: item.code || item.number || '',
                     customerName: item.customer?.name || item.customerName || '',
+                    value: item.total ?? item.value ?? 0,
+                    saleDate: item.saleDate || null,
+                    status: item.valid ? 'VALID' : (item.canceled ? 'CANCELED' : null),
                 }));
             }
             throw error;

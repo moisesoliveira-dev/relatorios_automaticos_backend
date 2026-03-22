@@ -320,6 +320,8 @@ export class PonttaService {
                 },
             });
 
+            console.log('[PonttaRaw] sales-orders/summary com Businessunit -> response.data:', JSON.stringify(responseWithBu.data));
+
             const itemsWithBu = parseItems(responseWithBu.data);
             console.log(`✅ Resposta pedidos de venda c/ Businessunit: ${itemsWithBu.length} item(ns)`);
             if (itemsWithBu.length > 0 || !!query) {
@@ -333,6 +335,8 @@ export class PonttaService {
                     'Content-Type': 'application/json',
                 },
             });
+
+            console.log('[PonttaRaw] sales-orders/summary sem Businessunit -> response.data:', JSON.stringify(responseWithoutBu.data));
 
             const itemsWithoutBu = parseItems(responseWithoutBu.data);
             console.log(`✅ Resposta pedidos de venda sem Businessunit: ${itemsWithoutBu.length} item(ns)`);
@@ -576,6 +580,9 @@ export class PonttaService {
                         Businessunit: this.businessUnitId,
                     },
                 });
+
+                console.log('[PonttaRaw] sales-orders items -> URL:', url);
+                console.log('[PonttaRaw] sales-orders items -> response.data:', JSON.stringify(response.data));
 
                 const data = response.data;
                 const items = Array.isArray(data) ? data : (data?.content || []);

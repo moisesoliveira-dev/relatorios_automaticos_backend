@@ -127,7 +127,10 @@ export class GosacController {
      */
     @Get('sales-orders/search')
     async searchSalesOrders(@Query('q') q?: string) {
-        return this.gosacService.searchSalesOrders(q);
+        // console.log('[MontadorAPI] GET /gosac/sales-orders/search', { q });
+        const results = await this.gosacService.searchSalesOrders(q);
+        // console.log('[MontadorAPI] sales-orders/search -> sucesso', { total: results.length });
+        return results;
     }
 
     /**
@@ -175,10 +178,16 @@ export class GosacController {
     @Post('logo')
     @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
     async uploadLogo(@UploadedFile() file: Express.Multer.File) {
+        console.log('[MontadorAPI] POST /gosac/logo', {
+            fileName: file?.originalname,
+            mimeType: file?.mimetype,
+            size: file?.size,
+        });
         if (!file) throw new Error('Nenhum arquivo enviado');
         const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
         if (!allowed.includes(file.mimetype)) throw new Error('Formato inválido. Use PNG, JPG ou WebP.');
         await this.montadorPdfService.updateLogo(file.buffer, file.mimetype);
+        console.log('[MontadorAPI] uploadLogo -> sucesso');
         return { message: 'Logo atualizado com sucesso' };
     }
 
@@ -206,7 +215,10 @@ export class GosacController {
      */
     @Get('sales-orders/:id/items')
     async getSalesOrderItems(@Param('id') id: string) {
-        return this.gosacService.getSalesOrderItems(id);
+        console.log('[MontadorAPI] GET /gosac/sales-orders/:id/items', { id });
+        const items = await this.gosacService.getSalesOrderItems(id);
+        console.log('[MontadorAPI] sales-orders/:id/items -> sucesso', { id, total: items.length });
+        return items;
     }
 
     /**
@@ -253,6 +265,13 @@ export class GosacController {
         },
         @Res() res: Response,
     ) {
+        console.log('[MontadorAPI] POST /gosac/sales-orders/montador-pdf', {
+            proposalCode: body?.proposalCode,
+            customerName: body?.customerName,
+            environmentName: body?.environmentName,
+            environmentValue: body?.environmentValue,
+            sendToDrive: body?.sendToDrive,
+        });
         return this.generateMontadorPdf(body, res);
     }
 
@@ -271,6 +290,26 @@ export class GosacController {
         },
         res: Response,
     ) {
+        console.log('[MontadorCalc] Payload bruto recebido', {
+            proposalCode: body?.proposalCode,
+            customerName: body?.customerName,
+            environmentName: body?.environmentName,
+            environmentValue: body?.environmentValue,
+            ponttaDiscount: body?.ponttaDiscount,
+            additionalDiscount: body?.additionalDiscount,
+            deliveryDate: body?.deliveryDate,
+            assemblyStartDate: body?.assemblyStartDate,
+            assemblyEndDate: body?.assemblyEndDate,
+            sendToDrive: body?.sendToDrive,
+        });
+
+        console.log('[MontadorAPI] generateMontadorPdf -> início', {
+            proposalCode: body.proposalCode,
+            customerName: body.customerName,
+            environmentName: body.environmentName,
+            environmentValue: body.environmentValue,
+            sendToDrive: body.sendToDrive,
+        });
         const additionalDiscount = body.additionalDiscount ?? 6;
         const montadorRate = 0.07;
         // O valor enviado já vem com o desconto do Pontta aplicado.
@@ -279,7 +318,16 @@ export class GosacController {
         const discountedValue = originalValue * (1 - additionalDiscount / 100);
         const montadorPayment = discountedValue * montadorRate;
 
-        const pdfBuffer = await this.montadorPdfService.generatePdf({
+        console.log('[MontadorCalc] Cálculo detalhado', {
+            originalValue,
+            additionalDiscountPercent: additionalDiscount,
+            additionalDiscountFactor: 1 - additionalDiscount / 100,
+            discountedValue,
+            montadorRatePercent: montadorRate * 100,
+            montadorPayment,
+        });
+
+        const pdfInput = {
             proposalCode: body.proposalCode,
             customerName: body.customerName,
             environmentName: body.environmentName,
@@ -291,25 +339,39 @@ export class GosacController {
             deliveryDate: body.deliveryDate || '',
             assemblyStartDate: body.assemblyStartDate || '',
             assemblyEndDate: body.assemblyEndDate || '',
-        });
+        };
+
+        console.log('[MontadorCalc] Objeto enviado para geração do PDF', pdfInput);
+
+        const pdfBuffer = await this.montadorPdfService.generatePdf(pdfInput);
 
         const filename = this.googleDriveService.sanitizePdfFilename(
             body.customerName,
             body.environmentName,
         );
 
+        console.log('[MontadorAPI] generateMontadorPdf -> cálculo', {
+            filename,
+            additionalDiscount,
+            discountedValue,
+            montadorPayment,
+        });
+
         // Upload to Google Drive if requested and enabled
         if (body.sendToDrive) {
             try {
                 const driveEnabled = await this.googleDriveService.isEnabled();
                 if (!driveEnabled) {
+                    console.log('[MontadorAPI] Drive desabilitado');
                     res.set('X-Drive-Error', 'Google Drive desabilitado. Ative em Configurações > GOOGLE_DRIVE_ENABLED.');
                 } else {
                     const monthFolderId = await this.googleDriveService.ensureMonthFolderFromSettings();
                     if (!monthFolderId) {
+                        console.log('[MontadorAPI] Drive sem pasta raiz configurada');
                         res.set('X-Drive-Error', 'ID da pasta raiz não configurado. Preencha GOOGLE_DRIVE_FOLDER_ID nas Configurações.');
                     } else {
                         await this.googleDriveService.uploadPdf(pdfBuffer, filename, monthFolderId);
+                        console.log('[MontadorAPI] Drive upload sucesso', { filename, monthFolderId });
                         res.set('X-Drive-Success', 'true');
                     }
                 }
@@ -325,6 +387,7 @@ export class GosacController {
             'Content-Disposition': `attachment; filename="${filename}"`,
             'Content-Length': pdfBuffer.length,
         });
+        console.log('[MontadorAPI] generateMontadorPdf -> resposta PDF', { filename, bytes: pdfBuffer.length });
         res.end(pdfBuffer);
     }
 }
