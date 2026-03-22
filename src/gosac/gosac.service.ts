@@ -429,6 +429,13 @@ export class GosacService {
                 filename = `gosac_${ticketId}_${Date.now()}.${ext}`;
             }
 
+            // Para imagens, força um token novo antes do upload.
+            const isImage = contentType.toLowerCase().startsWith('image/');
+            if (isImage) {
+                console.log('🔐 [webhook] Imagem detectada, forçando novo token Pontta para upload.');
+                this.ponttaService.clearTokenCache(this.ponttaEmail);
+            }
+
             // Autentica no Pontta e faz upload
             const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
             await this.ponttaService.uploadFileToOccurrence(

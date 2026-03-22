@@ -39,10 +39,13 @@ export class GosacController {
      */
     @Get('tickets/search')
     async searchTickets(@Query('q') q: string) {
+        console.log('[GosacGruposAPI] GET /gosac/tickets/search', { q });
         if (!q || q.trim().length === 0) {
+            console.log('[GosacGruposAPI] tickets/search -> query vazia');
             return { tickets: [] };
         }
         const tickets = await this.gosacService.searchTickets(q);
+        console.log('[GosacGruposAPI] tickets/search -> sucesso', { total: tickets.length });
         return { tickets };
     }
 
@@ -52,7 +55,10 @@ export class GosacController {
      */
     @Get('groups')
     async findAllGroups() {
-        return this.gosacService.findAllGroups();
+        console.log('[GosacGruposAPI] GET /gosac/groups');
+        const groups = await this.gosacService.findAllGroups();
+        console.log('[GosacGruposAPI] groups -> sucesso', { total: groups.length });
+        return groups;
     }
 
     /**
@@ -70,7 +76,14 @@ export class GosacController {
      */
     @Post('groups')
     async createGroup(@Body() dto: CreateGosacGroupDto) {
-        return this.gosacService.createGroup(dto);
+        console.log('[GosacGruposAPI] POST /gosac/groups', {
+            gosacTicketId: dto?.gosacTicketId,
+            gosacContactId: dto?.gosacContactId,
+            gosacTicketName: dto?.gosacTicketName,
+        });
+        const group = await this.gosacService.createGroup(dto);
+        console.log('[GosacGruposAPI] createGroup -> sucesso', { groupId: group.id });
+        return group;
     }
 
     /**
@@ -88,7 +101,10 @@ export class GosacController {
      */
     @Patch('groups/:id/toggle')
     async toggleGroup(@Param('id') id: string) {
-        return this.gosacService.toggleGroup(id);
+        console.log('[GosacGruposAPI] PATCH /gosac/groups/:id/toggle', { id });
+        const updated = await this.gosacService.toggleGroup(id);
+        console.log('[GosacGruposAPI] toggleGroup -> sucesso', { id: updated.id, isActive: updated.isActive });
+        return updated;
     }
 
     /**
@@ -97,7 +113,10 @@ export class GosacController {
      */
     @Delete('groups/:id')
     async deleteGroup(@Param('id') id: string) {
-        return this.gosacService.deleteGroup(id);
+        console.log('[GosacGruposAPI] DELETE /gosac/groups/:id', { id });
+        await this.gosacService.deleteGroup(id);
+        console.log('[GosacGruposAPI] deleteGroup -> sucesso', { id });
+        return { success: true };
     }
 
     // ===== Pedidos de Venda Pontta =====
@@ -117,7 +136,19 @@ export class GosacController {
      */
     @Post('groups/:id/sales-orders')
     async linkSalesOrder(@Param('id') id: string, @Body() dto: LinkSalesOrderDto) {
-        return this.gosacService.linkSalesOrder(id, dto.ponttaId, dto.code, dto.customerName, dto.occurrenceTitle);
+        console.log('[GosacGruposAPI] POST /gosac/groups/:id/sales-orders', {
+            groupId: id,
+            ponttaId: dto?.ponttaId,
+            code: dto?.code,
+            customerName: dto?.customerName,
+        });
+        const result = await this.gosacService.linkSalesOrder(id, dto.ponttaId, dto.code, dto.customerName, dto.occurrenceTitle);
+        console.log('[GosacGruposAPI] linkSalesOrder -> sucesso', {
+            groupId: id,
+            salesOrderId: result?.salesOrder?.id,
+            occurrenceStatus: result?.salesOrder?.ponttaOccurrenceStatus,
+        });
+        return result;
     }
 
     /**
@@ -129,7 +160,9 @@ export class GosacController {
         @Param('groupId') groupId: string,
         @Param('salesOrderId') salesOrderId: string,
     ) {
+        console.log('[GosacGruposAPI] DELETE /gosac/groups/:groupId/sales-orders/:salesOrderId', { groupId, salesOrderId });
         await this.gosacService.unlinkSalesOrder(groupId, salesOrderId);
+        console.log('[GosacGruposAPI] unlinkSalesOrder -> sucesso', { groupId, salesOrderId });
         return { success: true };
     }
 
