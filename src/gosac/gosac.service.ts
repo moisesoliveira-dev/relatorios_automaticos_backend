@@ -263,18 +263,35 @@ export class GosacService {
      */
     private async updateGosacTicketQueue(ticketId: number): Promise<void> {
         try {
-            const userIdStr = await this.settingsService.findByKey('GOSAC_TICKET_USER_ID');
-            const queueIdStr = await this.settingsService.findByKey('GOSAC_TICKET_QUEUE_ID');
-            const userId = parseInt(userIdStr || '71', 10);
-            const queueId = parseInt(queueIdStr || '58', 10);
+            // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=58.
+            const userId = 71;
+            const queueId = 58;
             const url = `${this.gosacBaseUrl}/api/tickets/${ticketId}`;
-            await axios.put(url, { userId, queueId, status: 'open', obs: '' }, {
+            const payload = { userId, queueId, status: 'open', obs: '' };
+
+            console.log('[GosacQueueAssign] Regra fixa aplicada', {
+                ticketId,
+                userId,
+                queueId,
+            });
+
+            console.log('[GosacQueueAssign] Enviando atualização para GOSAC', {
+                url,
+                payload,
+            });
+
+            const response = await axios.put(url, payload, {
                 headers: {
                     Authorization: `INTEGRATION ${this.gosacApiKey}`,
                     'Content-Type': 'application/json',
                 },
             });
-            console.log(`✅ [bg] Ticket GOSAC #${ticketId} atualizado: userId=${userId}, queueId=${queueId}`);
+            console.log('[GosacQueueAssign] Atualização concluída', {
+                ticketId,
+                status: response.status,
+                userId,
+                queueId,
+            });
         } catch (error) {
             console.error(`⚠️ [bg] Falha ao atualizar ticket GOSAC #${ticketId}:`, error?.response?.data || error?.message);
         }
