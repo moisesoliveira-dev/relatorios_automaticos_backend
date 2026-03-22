@@ -114,11 +114,13 @@ export class GoogleDriveService {
     }
 
     /**
-     * Gera o nome do arquivo PDF incluindo o nome do cliente e do ambiente.
+     * Gera o nome do arquivo PDF no formato: "PrimeiroNome - Ambiente.pdf".
      */
     sanitizePdfFilename(customerName: string, environmentName: string): string {
         const sanitize = (s: string) =>
             s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim();
-        return `Pagamento Montador - ${sanitize(customerName)} - ${sanitize(environmentName)}.pdf`;
+        const firstName = sanitize(customerName).split(' ')[0] || 'Cliente';
+        const env = sanitize(environmentName) || 'Ambiente';
+        return `${firstName} - ${env}.pdf`;
     }
 }
