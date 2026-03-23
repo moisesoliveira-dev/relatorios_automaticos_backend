@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { google, drive_v3 } from 'googleapis';
 import { Readable } from 'stream';
+import * as fs from 'fs';
+import * as path from 'path';
 import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
@@ -20,16 +22,39 @@ export class GoogleDriveService {
     }
 
     private async getDriveClient(): Promise<drive_v3.Drive> {
-        const clientId = await this.settingsService.findByKey('GOOGLE_CLIENT_ID');
-        const clientSecret = await this.settingsService.findByKey('GOOGLE_CLIENT_SECRET');
-        const refreshToken = await this.settingsService.findByKey('GOOGLE_REFRESH_TOKEN');
+        const credentialsPath = path.join(
+            process.cwd(),
+            'src',
+            'google_credencials',
+            'app-drive-integration-490002-adfd6da727bf.json',
+        );
 
-        if (!clientId || !clientSecret || !refreshToken) {
-            throw new Error('Credenciais do Google Drive não configuradas. Configure Client ID, Client Secret e Refresh Token nas configurações.');
+        let credentialsRaw: string;
+        try {
+            credentialsRaw = fs.readFileSync(credentialsPath, 'utf8');
+        } catch {
+            throw new Error(`Arquivo de credenciais do Google Drive não encontrado: ${credentialsPath}`);
         }
 
-        const auth = new google.auth.OAuth2(clientId, clientSecret);
-        auth.setCredentials({ refresh_token: refreshToken });
+        let credentials: { client_email?: string; private_key?: string };
+        try {
+            credentials = JSON.parse(credentialsRaw);
+        } catch {
+            throw new Error(`Arquivo de credenciais inválido (JSON malformado): ${credentialsPath}`);
+        }
+
+        const clientEmail = credentials.client_email;
+        const privateKey = credentials.private_key?.replace(/\\n/g, '\n');
+
+        if (!clientEmail || !privateKey) {
+            throw new Error('Credenciais do Google Drive inválidas. Campos obrigatórios: client_email e private_key.');
+        }
+
+        const auth = new google.auth.JWT({
+            email: clientEmail,
+            key: privateKey,
+            scopes: ['https://www.googleapis.com/auth/drive'],
+        });
 
         return google.drive({ version: 'v3', auth });
     }
