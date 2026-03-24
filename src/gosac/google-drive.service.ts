@@ -5,6 +5,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SettingsService } from '../settings/settings.service';
 
+interface GoogleServiceAccountCredentials {
+    client_email?: string;
+    private_key?: string;
+}
+
 @Injectable()
 export class GoogleDriveService {
     private readonly logger = new Logger(GoogleDriveService.name);
@@ -21,27 +26,57 @@ export class GoogleDriveService {
         return value === 'true';
     }
 
-    private async getDriveClient(): Promise<drive_v3.Drive> {
-        const credentialsPath = path.join(
-            process.cwd(),
-            'src',
-            'google_credencials',
-            'app-drive-integration-490002-adfd6da727bf.json',
+    private parseCredentials(raw: string, source: string): GoogleServiceAccountCredentials {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            throw new Error(`Credenciais do Google Drive inválidas (JSON malformado) em ${source}.`);
+        }
+    }
+
+    private loadCredentials(): { credentials: GoogleServiceAccountCredentials; source: string } {
+        const envBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64;
+        if (envBase64) {
+            try {
+                const decoded = Buffer.from(envBase64, 'base64').toString('utf8');
+                return {
+                    credentials: this.parseCredentials(decoded, 'GOOGLE_SERVICE_ACCOUNT_JSON_B64'),
+                    source: 'GOOGLE_SERVICE_ACCOUNT_JSON_B64',
+                };
+            } catch {
+                throw new Error('Falha ao decodificar GOOGLE_SERVICE_ACCOUNT_JSON_B64. Verifique se está em base64 válido.');
+            }
+        }
+
+        const envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+        if (envJson) {
+            return {
+                credentials: this.parseCredentials(envJson, 'GOOGLE_SERVICE_ACCOUNT_JSON'),
+                source: 'GOOGLE_SERVICE_ACCOUNT_JSON',
+            };
+        }
+
+        const fileCandidates = [
+            path.join(process.cwd(), 'src', 'google_credencials', 'app-drive-integration-490002-adfd6da727bf.json'),
+            path.join(process.cwd(), 'src', 'google_credencials', 'mythic-lead-461122-n4-a9544f9382f4.json'),
+        ];
+
+        for (const filePath of fileCandidates) {
+            if (!fs.existsSync(filePath)) continue;
+            const raw = fs.readFileSync(filePath, 'utf8');
+            return {
+                credentials: this.parseCredentials(raw, filePath),
+                source: filePath,
+            };
+        }
+
+        throw new Error(
+            'Credenciais do Google Drive não encontradas. Configure GOOGLE_SERVICE_ACCOUNT_JSON_B64 (recomendado), GOOGLE_SERVICE_ACCOUNT_JSON, ou disponibilize um JSON em src/google_credencials/.',
         );
+    }
 
-        let credentialsRaw: string;
-        try {
-            credentialsRaw = fs.readFileSync(credentialsPath, 'utf8');
-        } catch {
-            throw new Error(`Arquivo de credenciais do Google Drive não encontrado: ${credentialsPath}`);
-        }
-
-        let credentials: { client_email?: string; private_key?: string };
-        try {
-            credentials = JSON.parse(credentialsRaw);
-        } catch {
-            throw new Error(`Arquivo de credenciais inválido (JSON malformado): ${credentialsPath}`);
-        }
+    private async getDriveClient(): Promise<drive_v3.Drive> {
+        const { credentials, source } = this.loadCredentials();
 
         const clientEmail = credentials.client_email;
         const privateKey = credentials.private_key?.replace(/\\n/g, '\n');
@@ -49,6 +84,8 @@ export class GoogleDriveService {
         if (!clientEmail || !privateKey) {
             throw new Error('Credenciais do Google Drive inválidas. Campos obrigatórios: client_email e private_key.');
         }
+
+        this.logger.log(`Google Drive autenticando via service account (${source}).`);
 
         const auth = new google.auth.JWT({
             email: clientEmail,
