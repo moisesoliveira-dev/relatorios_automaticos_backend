@@ -21,6 +21,14 @@ export class GoogleDriveService {
 
     constructor(private readonly settingsService: SettingsService) { }
 
+    private maskEmail(email?: string): string {
+        if (!email) return '(vazio)';
+        const [user, domain] = email.split('@');
+        if (!domain) return '***';
+        const head = user.slice(0, 3);
+        return `${head}***@${domain}`;
+    }
+
     async isEnabled(): Promise<boolean> {
         const value = await this.settingsService.findByKey('GOOGLE_DRIVE_ENABLED');
         return value === 'true';
@@ -37,8 +45,10 @@ export class GoogleDriveService {
     private loadCredentials(): { credentials: GoogleServiceAccountCredentials; source: string } {
         const envBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64;
         if (envBase64) {
+            this.logger.log(`[DriveCreds] Tentando carregar credenciais via GOOGLE_SERVICE_ACCOUNT_JSON_B64 (len=${envBase64.length}).`);
             try {
                 const decoded = Buffer.from(envBase64, 'base64').toString('utf8');
+                this.logger.log(`[DriveCreds] Base64 decodificado com sucesso (decodedLen=${decoded.length}).`);
                 return {
                     credentials: this.parseCredentials(decoded, 'GOOGLE_SERVICE_ACCOUNT_JSON_B64'),
                     source: 'GOOGLE_SERVICE_ACCOUNT_JSON_B64',
@@ -50,6 +60,7 @@ export class GoogleDriveService {
 
         const envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
         if (envJson) {
+            this.logger.log(`[DriveCreds] Tentando carregar credenciais via GOOGLE_SERVICE_ACCOUNT_JSON (len=${envJson.length}).`);
             return {
                 credentials: this.parseCredentials(envJson, 'GOOGLE_SERVICE_ACCOUNT_JSON'),
                 source: 'GOOGLE_SERVICE_ACCOUNT_JSON',
@@ -63,7 +74,9 @@ export class GoogleDriveService {
 
         for (const filePath of fileCandidates) {
             if (!fs.existsSync(filePath)) continue;
+            this.logger.log(`[DriveCreds] Tentando carregar credenciais via arquivo: ${filePath}`);
             const raw = fs.readFileSync(filePath, 'utf8');
+            this.logger.log(`[DriveCreds] Arquivo de credenciais lido com sucesso (len=${raw.length}).`);
             return {
                 credentials: this.parseCredentials(raw, filePath),
                 source: filePath,
@@ -85,7 +98,7 @@ export class GoogleDriveService {
             throw new Error('Credenciais do Google Drive inválidas. Campos obrigatórios: client_email e private_key.');
         }
 
-        this.logger.log(`Google Drive autenticando via service account (${source}).`);
+        this.logger.log(`Google Drive autenticando via service account (${source}) | client_email=${this.maskEmail(clientEmail)} | private_key_len=${privateKey.length}`);
 
         const auth = new google.auth.JWT({
             email: clientEmail,
@@ -102,7 +115,11 @@ export class GoogleDriveService {
      */
     async ensureMonthFolderFromSettings(): Promise<string | null> {
         const rootFolderId = await this.settingsService.findByKey('GOOGLE_DRIVE_FOLDER_ID');
-        if (!rootFolderId) return null;
+        if (!rootFolderId) {
+            this.logger.warn('[DriveCreds] GOOGLE_DRIVE_FOLDER_ID não configurado nas settings.');
+            return null;
+        }
+        this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado: ${rootFolderId}`);
         return this.ensureMonthFolder(rootFolderId);
     }
 
