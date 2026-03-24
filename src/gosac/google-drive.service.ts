@@ -114,13 +114,20 @@ export class GoogleDriveService {
      * Retorna o ID da subpasta do mês, ou null se a pasta raiz não estiver configurada.
      */
     async ensureMonthFolderFromSettings(): Promise<string | null> {
-        const rootFolderId = await this.settingsService.findByKey('GOOGLE_DRIVE_FOLDER_ID');
-        if (!rootFolderId) {
-            this.logger.warn('[DriveCreds] GOOGLE_DRIVE_FOLDER_ID não configurado nas settings.');
-            return null;
+        const folderFromSettings = (await this.settingsService.findByKey('GOOGLE_DRIVE_FOLDER_ID'))?.trim();
+        if (folderFromSettings) {
+            this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado via settings: ${folderFromSettings}`);
+            return this.ensureMonthFolder(folderFromSettings);
         }
-        this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado: ${rootFolderId}`);
-        return this.ensureMonthFolder(rootFolderId);
+
+        const folderFromEnv = process.env.GOOGLE_DRIVE_FOLDER_ID?.trim();
+        if (folderFromEnv) {
+            this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado via env: ${folderFromEnv}`);
+            return this.ensureMonthFolder(folderFromEnv);
+        }
+
+        this.logger.warn('[DriveCreds] GOOGLE_DRIVE_FOLDER_ID não configurado nem nas settings nem no env.');
+        return null;
     }
 
     /**
