@@ -200,13 +200,14 @@ export class GoogleDriveService {
     }
 
     /**
-     * Gera o nome do arquivo PDF no formato: "PrimeiroNome - Ambiente.pdf".
+     * Gera o nome do arquivo PDF no formato: "(PV-CM611) PrimeiroNome - Ambiente.pdf".
      */
-    sanitizePdfFilename(customerName: string, environmentName: string): string {
+    sanitizePdfFilename(customerName: string, environmentName: string, salesOrderCode?: string): string {
         const sanitize = (s: string) =>
             s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim();
         const firstName = sanitize(customerName).split(' ')[0] || 'Cliente';
         const env = sanitize(environmentName) || 'Ambiente';
-        return `${firstName} - ${env}.pdf`;
+        const code = sanitize(salesOrderCode || '');
+        return code ? `(${code}) ${firstName} - ${env}.pdf` : `${firstName} - ${env}.pdf`;
     }
 }

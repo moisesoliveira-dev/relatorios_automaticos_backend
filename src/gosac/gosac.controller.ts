@@ -348,6 +348,7 @@ export class GosacController {
         const filename = this.googleDriveService.sanitizePdfFilename(
             body.customerName,
             body.environmentName,
+            body.proposalCode,
         );
 
         console.log('[MontadorAPI] generateMontadorPdf -> cálculo', {
