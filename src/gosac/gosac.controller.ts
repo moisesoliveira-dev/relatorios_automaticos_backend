@@ -316,7 +316,7 @@ export class GosacController {
             environmentsCount: body?.environments?.length || 0,
             sendToDrive: body.sendToDrive,
         });
-        const additionalDiscount = body.additionalDiscount ?? 6;
+        const additionalDiscount = body.additionalDiscount ?? 15;
         const montadorRate = 0.07;
 
         const sourceEnvironments =
