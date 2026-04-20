@@ -233,6 +233,7 @@ export class GosacController {
             customerName: string;
             environmentName: string;
             environmentValue: number;
+            environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
             deliveryDate?: string;
@@ -256,6 +257,7 @@ export class GosacController {
             customerName: string;
             environmentName: string;
             environmentValue: number;
+            environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
             deliveryDate?: string;
@@ -270,6 +272,7 @@ export class GosacController {
             customerName: body?.customerName,
             environmentName: body?.environmentName,
             environmentValue: body?.environmentValue,
+            environmentsCount: body?.environments?.length || 0,
             sendToDrive: body?.sendToDrive,
         });
         return this.generateMontadorPdf(body, res);
@@ -281,6 +284,7 @@ export class GosacController {
             customerName: string;
             environmentName: string;
             environmentValue: number;
+            environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
             deliveryDate?: string;
@@ -295,6 +299,7 @@ export class GosacController {
             customerName: body?.customerName,
             environmentName: body?.environmentName,
             environmentValue: body?.environmentValue,
+            environmentsCount: body?.environments?.length || 0,
             ponttaDiscount: body?.ponttaDiscount,
             additionalDiscount: body?.additionalDiscount,
             deliveryDate: body?.deliveryDate,
@@ -308,34 +313,52 @@ export class GosacController {
             customerName: body.customerName,
             environmentName: body.environmentName,
             environmentValue: body.environmentValue,
+            environmentsCount: body?.environments?.length || 0,
             sendToDrive: body.sendToDrive,
         });
         const additionalDiscount = body.additionalDiscount ?? 6;
         const montadorRate = 0.07;
-        // O valor enviado já vem com o desconto do Pontta aplicado.
-        const originalValue = body.environmentValue;
-        // Aplica apenas o desconto adicional fixo da empresa.
-        const discountedValue = originalValue * (1 - additionalDiscount / 100);
-        const montadorPayment = discountedValue * montadorRate;
+
+        const sourceEnvironments =
+            body.environments && body.environments.length > 0
+                ? body.environments
+                : [{ environmentName: body.environmentName, environmentValue: body.environmentValue }];
+
+        const calculatedEnvironments = sourceEnvironments.map((env, index) => {
+            const originalValue = Number(env.environmentValue) || 0;
+            const discountedValue = originalValue * (1 - additionalDiscount / 100);
+            const montadorPayment = discountedValue * montadorRate;
+            return {
+                environmentName: env.environmentName || `Ambiente ${index + 1}`,
+                environmentValue: originalValue,
+                discountedValue,
+                montadorPayment,
+            };
+        });
+
+        const totalEnvironmentValue = calculatedEnvironments.reduce((sum, env) => sum + env.environmentValue, 0);
+        const totalDiscountedValue = calculatedEnvironments.reduce((sum, env) => sum + env.discountedValue, 0);
+        const totalMontadorPayment = calculatedEnvironments.reduce((sum, env) => sum + env.montadorPayment, 0);
 
         console.log('[MontadorCalc] Cálculo detalhado', {
-            originalValue,
+            environmentsCount: calculatedEnvironments.length,
+            totalEnvironmentValue,
             additionalDiscountPercent: additionalDiscount,
             additionalDiscountFactor: 1 - additionalDiscount / 100,
-            discountedValue,
+            totalDiscountedValue,
             montadorRatePercent: montadorRate * 100,
-            montadorPayment,
+            totalMontadorPayment,
         });
 
         const pdfInput = {
             proposalCode: body.proposalCode,
             customerName: body.customerName,
-            environmentName: body.environmentName,
-            environmentValue: originalValue,
+            environments: calculatedEnvironments,
             discount: additionalDiscount,
-            discountedValue,
             montadorRate,
-            montadorPayment,
+            totalEnvironmentValue,
+            totalDiscountedValue,
+            totalMontadorPayment,
             deliveryDate: body.deliveryDate || '',
             assemblyStartDate: body.assemblyStartDate || '',
             assemblyEndDate: body.assemblyEndDate || '',
@@ -345,17 +368,22 @@ export class GosacController {
 
         const pdfBuffer = await this.montadorPdfService.generatePdf(pdfInput);
 
+        const filenameEnvironment = calculatedEnvironments.length > 1
+            ? 'Ambientes'
+            : calculatedEnvironments[0]?.environmentName || body.environmentName;
+
         const filename = this.googleDriveService.sanitizePdfFilename(
             body.customerName,
-            body.environmentName,
+            filenameEnvironment,
             body.proposalCode,
         );
 
         console.log('[MontadorAPI] generateMontadorPdf -> cálculo', {
             filename,
+            environmentsCount: calculatedEnvironments.length,
             additionalDiscount,
-            discountedValue,
-            montadorPayment,
+            totalDiscountedValue,
+            totalMontadorPayment,
         });
 
         // Upload to Google Drive if requested and enabled

@@ -7,12 +7,17 @@ import { SettingsService } from '../settings/settings.service';
 export interface MontadorPdfData {
     proposalCode: string;
     customerName: string;
-    environmentName: string;
-    environmentValue: number;
+    environments: Array<{
+        environmentName: string;
+        environmentValue: number;
+        discountedValue: number;
+        montadorPayment: number;
+    }>;
     discount: number;
-    discountedValue: number;
     montadorRate: number;
-    montadorPayment: number;
+    totalEnvironmentValue: number;
+    totalDiscountedValue: number;
+    totalMontadorPayment: number;
     deliveryDate: string;
     assemblyStartDate: string;
     assemblyEndDate: string;
@@ -74,12 +79,12 @@ export class MontadorPdfService {
         const previewValues = {
             customerName: data.customerName,
             proposalCode: data.proposalCode,
-            environmentName: data.environmentName,
-            environmentValue: this.formatCurrency(data.environmentValue),
+            environmentsCount: data.environments.length,
+            totalEnvironmentValue: this.formatCurrency(data.totalEnvironmentValue),
             discountPercent: `${data.discount.toFixed(1)}%`,
-            discountedValue: this.formatCurrency(data.discountedValue),
+            totalDiscountedValue: this.formatCurrency(data.totalDiscountedValue),
             montadorRatePercent: `${(data.montadorRate * 100).toFixed(0)}%`,
-            montadorPayment: this.formatCurrency(data.montadorPayment),
+            totalMontadorPayment: this.formatCurrency(data.totalMontadorPayment),
             deliveryDate: data.deliveryDate || '____/____/________',
             assemblyStartDate: data.assemblyStartDate || '____/____/________',
             assemblyEndDate: data.assemblyEndDate || '____/____/________',
@@ -125,6 +130,18 @@ export class MontadorPdfService {
             ? `<img src="${logoDataUrl}" class="logo" alt="Logo" />`
             : `<div class="logo-placeholder"></div>`;
 
+        const environmentsRows = data.environments
+            .map((env) => `
+                <tr>
+                    <td>${this.escapeHtml(env.environmentName)}</td>
+                    <td>${this.formatCurrency(env.environmentValue)}</td>
+                    <td>${data.discount.toFixed(1)}%</td>
+                    <td>${this.formatCurrency(env.discountedValue)}</td>
+                    <td>${this.formatCurrency(env.montadorPayment)}</td>
+                </tr>
+            `)
+            .join('');
+
         return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -163,7 +180,7 @@ export class MontadorPdfService {
     <div class="header">
         ${logoHtml}
         <div class="title">
-            Pagamento de<br>Montador
+            Boleto de Pagamento<br>de Montador
         </div>
     </div>
 
@@ -176,7 +193,7 @@ export class MontadorPdfService {
     </div>
 
     <div class="section">
-        <div class="section-title">Ambiente</div>
+        <div class="section-title">Ambientes Selecionados</div>
         <table>
             <thead>
                 <tr>
@@ -184,14 +201,17 @@ export class MontadorPdfService {
                     <th>Valor Original</th>
                     <th>Desconto</th>
                     <th>Valor c/ Desconto</th>
+                    <th>Montador (${rate}%)</th>
                 </tr>
             </thead>
             <tbody>
+                ${environmentsRows}
                 <tr>
-                    <td>${this.escapeHtml(data.environmentName)}</td>
-                    <td>${this.formatCurrency(data.environmentValue)}</td>
-                    <td>${data.discount.toFixed(1)}%</td>
-                    <td>${this.formatCurrency(data.discountedValue)}</td>
+                    <td><strong>Total (${data.environments.length})</strong></td>
+                    <td><strong>${this.formatCurrency(data.totalEnvironmentValue)}</strong></td>
+                    <td><strong>${data.discount.toFixed(1)}%</strong></td>
+                    <td><strong>${this.formatCurrency(data.totalDiscountedValue)}</strong></td>
+                    <td class="highlight">${this.formatCurrency(data.totalMontadorPayment)}</td>
                 </tr>
             </tbody>
         </table>
@@ -209,9 +229,9 @@ export class MontadorPdfService {
             </thead>
             <tbody>
                 <tr>
-                    <td>${this.formatCurrency(data.discountedValue)}</td>
+                    <td>${this.formatCurrency(data.totalDiscountedValue)}</td>
                     <td>${rate}%</td>
-                    <td class="highlight">${this.formatCurrency(data.montadorPayment)}</td>
+                    <td class="highlight">${this.formatCurrency(data.totalMontadorPayment)}</td>
                 </tr>
             </tbody>
         </table>
