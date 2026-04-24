@@ -13,6 +13,7 @@ import { EmailModule } from '../email/email.module';
 import { Report, ReportEmail, ReportExecution } from './entities/report.entity';
 import { DashboardMetric, SystemLog } from './entities/dashboard.entity';
 import { ScheduledJob } from './entities/job.entity';
+import { GosacModule } from '../gosac/gosac.module';
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { ScheduledJob } from './entities/job.entity';
         CsvModule,
         ExcelModule,
         EmailModule,
+        GosacModule,
     ],
     controllers: [ReportController, DashboardController, JobController],
     providers: [ReportService, DashboardService, JobService],

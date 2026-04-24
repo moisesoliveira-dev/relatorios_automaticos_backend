@@ -19,6 +19,6 @@ import { GoogleDriveService } from './google-drive.service';
     ],
     controllers: [GosacController, GosacWebhookController],
     providers: [GosacService, MontadorPdfService, GoogleDriveService],
-    exports: [GosacService],
+    exports: [GosacService, GoogleDriveService],
 })
 export class GosacModule { }

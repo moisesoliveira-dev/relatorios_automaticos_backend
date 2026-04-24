@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JobService } from './job.service';
 import { CreateJobDto, UpdateJobDto } from './dto/job.dto';
@@ -7,6 +7,35 @@ import { CreateJobDto, UpdateJobDto } from './dto/job.dto';
 @UseGuards(JwtAuthGuard)
 export class JobController {
     constructor(private readonly jobService: JobService) { }
+
+    @Get('code')
+    getCodeJobs() {
+        return this.jobService.getCodeJobs();
+    }
+
+    @Get('code/:id/logs')
+    getCodeJobLogs(
+        @Param('id') id: string,
+        @Query('limit') limit?: string,
+    ) {
+        const parsedLimit = Number(limit || '200');
+        return this.jobService.getCodeJobLogs(id, Number.isFinite(parsedLimit) ? parsedLimit : 200);
+    }
+
+    @Post('code/:id/start')
+    startCodeJob(@Param('id') id: string) {
+        return this.jobService.startCodeJob(id);
+    }
+
+    @Post('code/:id/stop')
+    stopCodeJob(@Param('id') id: string) {
+        return this.jobService.stopCodeJob(id);
+    }
+
+    @Post('code/:id/run')
+    runCodeJobNow(@Param('id') id: string) {
+        return this.jobService.runCodeJobNow(id);
+    }
 
     @Post()
     create(@Body() createJobDto: CreateJobDto) {

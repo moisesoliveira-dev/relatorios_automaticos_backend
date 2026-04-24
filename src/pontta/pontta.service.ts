@@ -618,4 +618,105 @@ export class PonttaService {
             HttpStatus.NOT_FOUND,
         );
     }
+
+    /**
+     * Busca pedidos de venda por período na rota summary.
+     */
+    async getSalesOrdersSummaryByDateRange(
+        token: string,
+        startIso: string,
+        endIso: string,
+        page: number = 0,
+        size: number = 100,
+    ): Promise<any[]> {
+        try {
+            const url = `${this.apiUrl}/sales-orders/summary`;
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    Businessunit: this.businessUnitId,
+                },
+                params: {
+                    start: startIso,
+                    end: endIso,
+                    status: 'VALID',
+                    page,
+                    size,
+                    sort: 'saleDate,number,desc',
+                },
+            });
+
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data?.content)) return data.content;
+            if (Array.isArray(data?.data?.content)) return data.data.content;
+            return [];
+        } catch (error) {
+            const status = error?.response?.status;
+            const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar pedidos de venda por período: ${detail}`,
+                status || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /**
+     * Busca o revenue principal vinculado ao pedido de venda pelo código.
+     */
+    async getRevenueBySalesOrderCode(token: string, salesOrderCode: string): Promise<any | null> {
+        try {
+            const url = `${this.apiUrl}/revenues/find-by-sales-order/${encodeURIComponent(salesOrderCode)}`;
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    Businessunit: this.businessUnitId,
+                },
+            });
+            return response.data || null;
+        } catch (error) {
+            const status = error?.response?.status;
+            if (status === 404) return null;
+            const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar revenue por pedido de venda: ${detail}`,
+                status || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /**
+     * Busca o resumo de tarefas do pedido de venda.
+     */
+    async getSalesOrderTasksSummary(
+        token: string,
+        salesOrderId: string,
+        page: number = 0,
+        size: number = 100,
+    ): Promise<any[]> {
+        try {
+            const url = `${this.apiUrl}/tasks/SALES_ORDER/${salesOrderId}/metadata/summary`;
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    Businessunit: this.businessUnitId,
+                },
+                params: { page, size },
+            });
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data?.content)) return data.content;
+            return [];
+        } catch (error) {
+            const status = error?.response?.status;
+            const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar tarefas do pedido de venda: ${detail}`,
+                status || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
 }
