@@ -18,8 +18,7 @@ interface CodeJobDefinition {
     name: string;
     description: string;
     scheduleLabel: string;
-    runHour: number;
-    runMinute: number;
+    runTimesManaus: Array<{ hour: number; minute: number }>;
 }
 
 interface CodeJobState {
@@ -55,6 +54,7 @@ interface DeliveryScheduleRow {
 @Injectable()
 export class JobService {
     private readonly logger = new Logger(JobService.name);
+    private readonly MANAUS_UTC_OFFSET_HOURS = -4;
     private readonly ponttaEmail: string;
     private readonly ponttaPassword: string;
 
@@ -63,9 +63,11 @@ export class JobService {
             id: 'delivery-material-dates',
             name: 'Gerar datas de entrega de material',
             description: 'Calcula datas por ambiente a partir da tarefa "Aprovação do Projeto Executivo", gera PDF e salva no Drive.',
-            scheduleLabel: 'Diário às 06:00',
-            runHour: 6,
-            runMinute: 0,
+            scheduleLabel: 'Diário às 12:00 e 17:00 (Manaus)',
+            runTimesManaus: [
+                { hour: 12, minute: 0 },
+                { hour: 17, minute: 0 },
+            ],
         },
     ];
 
@@ -133,9 +135,12 @@ export class JobService {
         const state = this.codeJobStates.get(normalizedJobId)!;
 
         state.isActive = true;
-        state.nextRunAt = new Date().toISOString();
+        const nextRun = this.calculateNextCodeJobRun(normalizedJobId);
+        state.nextRunAt = nextRun.toISOString();
 
-        this.pushCodeJobLog(normalizedJobId, 'info', 'Job ativado. Próxima execução imediata.');
+        this.pushCodeJobLog(normalizedJobId, 'info', 'Job ativado.', {
+            nextRunAt: state.nextRunAt,
+        });
         return this.getCodeJobs().find((j) => j.id === normalizedJobId);
     }
 
@@ -540,12 +545,57 @@ export class JobService {
     private calculateNextCodeJobRun(jobId: CodeJobId): Date {
         const def = this.codeJobDefinitions.find((d) => d.id === jobId)!;
         const now = new Date();
-        const next = new Date(now);
-        next.setHours(def.runHour, def.runMinute, 0, 0);
-        if (next <= now) {
-            next.setDate(next.getDate() + 1);
+
+        const runTimes = [...def.runTimesManaus].sort((a, b) => {
+            if (a.hour !== b.hour) return a.hour - b.hour;
+            return a.minute - b.minute;
+        });
+
+        const manausNow = new Date(now.getTime() + this.MANAUS_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+
+        for (const runTime of runTimes) {
+            const candidate = this.createUtcDateFromManausLocal(
+                manausNow.getUTCFullYear(),
+                manausNow.getUTCMonth() + 1,
+                manausNow.getUTCDate(),
+                runTime.hour,
+                runTime.minute,
+            );
+
+            if (candidate > now) {
+                return candidate;
+            }
         }
-        return next;
+
+        const tomorrowManaus = new Date(Date.UTC(
+            manausNow.getUTCFullYear(),
+            manausNow.getUTCMonth(),
+            manausNow.getUTCDate(),
+            0,
+            0,
+            0,
+            0,
+        ));
+        tomorrowManaus.setUTCDate(tomorrowManaus.getUTCDate() + 1);
+
+        return this.createUtcDateFromManausLocal(
+            tomorrowManaus.getUTCFullYear(),
+            tomorrowManaus.getUTCMonth() + 1,
+            tomorrowManaus.getUTCDate(),
+            runTimes[0].hour,
+            runTimes[0].minute,
+        );
+    }
+
+    private createUtcDateFromManausLocal(
+        year: number,
+        month: number,
+        day: number,
+        hour: number,
+        minute: number,
+    ): Date {
+        const utcHour = hour - this.MANAUS_UTC_OFFSET_HOURS;
+        return new Date(Date.UTC(year, month - 1, day, utcHour, minute, 0, 0));
     }
 
     private assertCodeJob(jobId: string): CodeJobId {
