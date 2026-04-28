@@ -94,3 +94,10 @@ export class UpdateJobDto {
     @IsBoolean()
     sendToFixedEmails?: boolean;
 }
+
+export class RunCodeJobNowDto {
+    @IsOptional()
+    @IsString()
+    @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'salesOrderDate must be in YYYY-MM-DD format' })
+    salesOrderDate?: string;
+}

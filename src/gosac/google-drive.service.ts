@@ -110,23 +110,33 @@ export class GoogleDriveService {
     }
 
     /**
-     * Lê o ID da pasta raiz das settings e garante que a subpasta do mês existe.
+     * Lê o ID da pasta raiz das settings (chave GOOGLE_DRIVE_FOLDER_ID) e garante
+     * que a subpasta do mês existe.
      * Retorna o ID da subpasta do mês, ou null se a pasta raiz não estiver configurada.
      */
     async ensureMonthFolderFromSettings(): Promise<string | null> {
-        const folderFromSettings = (await this.settingsService.findByKey('GOOGLE_DRIVE_FOLDER_ID'))?.trim();
+        return this.ensureMonthFolderFromSettingsKey('GOOGLE_DRIVE_FOLDER_ID');
+    }
+
+    /**
+     * Versão genérica: lê o ID da pasta raiz de uma chave de settings arbitrária
+     * (com fallback na env var de mesmo nome) e garante que a subpasta do mês existe.
+     * Retorna o ID da subpasta do mês, ou null se a pasta raiz não estiver configurada.
+     */
+    async ensureMonthFolderFromSettingsKey(settingsKey: string): Promise<string | null> {
+        const folderFromSettings = (await this.settingsService.findByKey(settingsKey))?.trim();
         if (folderFromSettings) {
-            this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado via settings: ${folderFromSettings}`);
+            this.logger.log(`[DriveCreds] ${settingsKey} carregado via settings: ${folderFromSettings}`);
             return this.ensureMonthFolder(folderFromSettings);
         }
 
-        const folderFromEnv = process.env.GOOGLE_DRIVE_FOLDER_ID?.trim();
+        const folderFromEnv = process.env[settingsKey]?.trim();
         if (folderFromEnv) {
-            this.logger.log(`[DriveCreds] GOOGLE_DRIVE_FOLDER_ID carregado via env: ${folderFromEnv}`);
+            this.logger.log(`[DriveCreds] ${settingsKey} carregado via env: ${folderFromEnv}`);
             return this.ensureMonthFolder(folderFromEnv);
         }
 
-        this.logger.warn('[DriveCreds] GOOGLE_DRIVE_FOLDER_ID não configurado nem nas settings nem no env.');
+        this.logger.warn(`[DriveCreds] ${settingsKey} não configurado nem nas settings nem no env.`);
         return null;
     }
 

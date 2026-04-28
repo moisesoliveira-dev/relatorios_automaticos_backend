@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JobService } from './job.service';
-import { CreateJobDto, UpdateJobDto } from './dto/job.dto';
+import { CreateJobDto, RunCodeJobNowDto, UpdateJobDto } from './dto/job.dto';
 
 @Controller('jobs')
 @UseGuards(JwtAuthGuard)
@@ -33,8 +33,11 @@ export class JobController {
     }
 
     @Post('code/:id/run')
-    runCodeJobNow(@Param('id') id: string) {
-        return this.jobService.runCodeJobNow(id);
+    runCodeJobNow(
+        @Param('id') id: string,
+        @Body() runCodeJobNowDto: RunCodeJobNowDto,
+    ) {
+        return this.jobService.runCodeJobNow(id, runCodeJobNowDto);
     }
 
     @Post()

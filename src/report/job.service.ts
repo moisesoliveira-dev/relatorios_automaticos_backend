@@ -31,6 +31,10 @@ interface CodeJobState {
     lastSummary: string | null;
 }
 
+interface RunCodeJobNowOptions {
+    salesOrderDate?: string;
+}
+
 export interface CodeJobLogEntry {
     timestamp: string;
     level: 'info' | 'success' | 'warning' | 'error';
@@ -63,10 +67,9 @@ export class JobService {
             id: 'delivery-material-dates',
             name: 'Gerar datas de entrega de material',
             description: 'Calcula datas por ambiente a partir da tarefa "Aprovação do Projeto Executivo", gera PDF e salva no Drive.',
-            scheduleLabel: 'Diário às 12:00 e 17:00 (Manaus)',
+            scheduleLabel: 'Diário às 00:00 (Manaus) — busca pedidos do dia anterior',
             runTimesManaus: [
-                { hour: 12, minute: 0 },
-                { hour: 17, minute: 0 },
+                { hour: 0, minute: 0 },
             ],
         },
     ];
@@ -156,9 +159,9 @@ export class JobService {
         return this.getCodeJobs().find((j) => j.id === normalizedJobId);
     }
 
-    async runCodeJobNow(jobId: string) {
+    async runCodeJobNow(jobId: string, options?: RunCodeJobNowOptions) {
         const normalizedJobId = this.assertCodeJob(jobId);
-        await this.executeCodeJob(normalizedJobId, 'manual');
+        await this.executeCodeJob(normalizedJobId, 'manual', options);
         return this.getCodeJobs().find((j) => j.id === normalizedJobId);
     }
 
@@ -176,7 +179,11 @@ export class JobService {
         }
     }
 
-    private async executeCodeJob(jobId: CodeJobId, trigger: 'manual' | 'schedule') {
+    private async executeCodeJob(
+        jobId: CodeJobId,
+        trigger: 'manual' | 'schedule',
+        options?: RunCodeJobNowOptions,
+    ) {
         const state = this.codeJobStates.get(jobId)!;
         if (state.isRunning) return;
 
@@ -188,7 +195,7 @@ export class JobService {
             let summary = '';
 
             if (jobId === 'delivery-material-dates') {
-                summary = await this.executeDeliveryMaterialDatesJob(jobId);
+                summary = await this.executeDeliveryMaterialDatesJob(jobId, options?.salesOrderDate);
             }
 
             state.lastStatus = 'success';
@@ -208,12 +215,19 @@ export class JobService {
         }
     }
 
-    private async executeDeliveryMaterialDatesJob(jobId: CodeJobId): Promise<string> {
+    private async executeDeliveryMaterialDatesJob(
+        jobId: CodeJobId,
+        salesOrderDate?: string,
+    ): Promise<string> {
         const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-        const { startIso, endIso, displayDate } = this.getTodayRangeForManausInUtc();
+        const { startIso, endIso, displayDate } = this.getDateRangeForManausInUtc(salesOrderDate);
 
-        this.pushCodeJobLog(jobId, 'info', 'Buscando pedidos de venda válidos do dia.', { startIso, endIso });
-        const salesOrders = await this.fetchTodaySalesOrders(token, startIso, endIso, jobId);
+        this.pushCodeJobLog(jobId, 'info', 'Buscando pedidos de venda válidos para a data selecionada.', {
+            startIso,
+            endIso,
+            salesOrderDate: displayDate,
+        });
+        const salesOrders = await this.fetchSalesOrdersByDateRange(token, startIso, endIso, jobId);
 
         if (salesOrders.length === 0) {
             return 'Nenhum pedido de venda válido encontrado para o período.';
@@ -270,10 +284,10 @@ export class JobService {
 
         const pdfBuffer = await this.generateDeliveryMaterialDatesPdf(rows, displayDate);
 
-        const monthFolderId = await this.googleDriveService.ensureMonthFolderFromSettings();
+        const monthFolderId = await this.googleDriveService.ensureMonthFolderFromSettingsKey('GOOGLE_DRIVE_DELIVERY_FOLDER_ID');
         if (!monthFolderId) {
             throw new HttpException(
-                'GOOGLE_DRIVE_FOLDER_ID não configurado para armazenar o PDF do job.',
+                'GOOGLE_DRIVE_DELIVERY_FOLDER_ID não configurado para armazenar o PDF do job.',
                 HttpStatus.BAD_REQUEST,
             );
         }
@@ -284,7 +298,12 @@ export class JobService {
         return `Pedidos lidos: ${scannedSalesOrders} | Ambientes processados: ${rows.length} | PDF salvo: ${fileName}`;
     }
 
-    private async fetchTodaySalesOrders(token: string, startIso: string, endIso: string, jobId: CodeJobId): Promise<any[]> {
+    private async fetchSalesOrdersByDateRange(
+        token: string,
+        startIso: string,
+        endIso: string,
+        jobId: CodeJobId,
+    ): Promise<any[]> {
         const pageSize = 100;
         let page = 0;
         const all: any[] = [];
@@ -438,6 +457,8 @@ export class JobService {
             `)
             .join('');
 
+        const calendarHtml = this.buildCalendarHtml(rows);
+
         const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -446,6 +467,7 @@ export class JobService {
     * { box-sizing: border-box; }
     body { font-family: Arial, sans-serif; color: #222; margin: 24px; }
     h1 { margin: 0 0 6px; font-size: 18px; color: #1e3a5f; }
+    h2 { margin: 0 0 8px; font-size: 14px; color: #1e3a5f; }
     .subtitle { margin: 0 0 16px; font-size: 12px; color: #4b5563; }
     .meta { margin-bottom: 12px; font-size: 11px; color: #374151; }
     table { width: 100%; border-collapse: collapse; font-size: 10px; }
@@ -453,6 +475,23 @@ export class JobService {
     th { background: #1e3a5f; color: #fff; font-weight: 600; }
     tr:nth-child(even) td { background: #f9fafb; }
     .footer { margin-top: 12px; font-size: 10px; color: #6b7280; }
+    /* Calendários */
+    .calendar-section { margin-top: 24px; page-break-before: always; }
+    .legend { display: flex; gap: 16px; margin-bottom: 12px; font-size: 10px; align-items: center; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .calendars-wrapper { display: flex; flex-wrap: wrap; gap: 14px; }
+    .month-cal { border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; width: 210px; }
+    .month-cal-header { background: #1e3a5f; color: #fff; text-align: center; padding: 6px 4px; font-size: 11px; font-weight: 700; }
+    .month-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
+    .cal-cell { text-align: center; font-size: 9px; min-height: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 2px 1px; border: 1px solid #f3f4f6; }
+    .cal-wday { background: #f3f4f6; font-weight: 700; color: #374151; min-height: 18px; justify-content: center; font-size: 8px; border-color: #e5e7eb; }
+    .cal-empty { background: #fafafa; }
+    .cal-day-num { font-weight: 500; line-height: 1.2; }
+    .cal-dots { display: flex; gap: 1px; flex-wrap: wrap; justify-content: center; margin-top: 1px; }
+    .cal-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .cal-dot-more { font-size: 7px; color: #6b7280; line-height: 1; }
+    .has-marks { background: #f0fdf4; }
   </style>
 </head>
 <body>
@@ -479,6 +518,18 @@ export class JobService {
       ${rowsHtml}
     </tbody>
   </table>
+
+  <div class="calendar-section">
+    <h2>Calendário de Entregas</h2>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#9ca3af"></span> Aprovação Executivo</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span> Início Produção (+10)</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Entrega (+15 da produção)</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Entrega +30 úteis</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> <strong>Entrega Final (ter/qui)</strong></span>
+    </div>
+    ${calendarHtml}
+  </div>
 
   <p class="footer">Documento gerado automaticamente pelo job em ${new Date().toLocaleString('pt-BR')}.</p>
 </body>
@@ -507,6 +558,85 @@ export class JobService {
         }
     }
 
+    private buildCalendarHtml(rows: DeliveryScheduleRow[]): string {
+        interface DotMark { color: string; title: string }
+        const monthMap = new Map<string, { year: number; month: number; days: Map<number, DotMark[]> }>();
+
+        const markDate = (date: Date, color: string, label: string, row: DeliveryScheduleRow) => {
+            const key = `${date.getFullYear()}-${date.getMonth()}`;
+            if (!monthMap.has(key)) {
+                monthMap.set(key, { year: date.getFullYear(), month: date.getMonth(), days: new Map() });
+            }
+            const m = monthMap.get(key)!;
+            const d = date.getDate();
+            if (!m.days.has(d)) m.days.set(d, []);
+            m.days.get(d)!.push({ color, title: `${row.salesOrderCode} - ${row.environmentName}: ${label}` });
+        };
+
+        for (const row of rows) {
+            markDate(row.approvalDate, '#9ca3af', 'Aprovação Executivo', row);
+            markDate(row.productionStartDate, '#3b82f6', 'Início Produção', row);
+            markDate(row.deliveryFromProductionDate, '#f59e0b', 'Entrega +15 (produção)', row);
+            markDate(row.deliveryFromApproval30Date, '#ef4444', 'Entrega +30 úteis', row);
+            markDate(row.deliveryTueOrThuDate, '#10b981', 'Entrega Final (ter/qui)', row);
+        }
+
+        const sortedMonths = Array.from(monthMap.values()).sort((a, b) => {
+            if (a.year !== b.year) return a.year - b.year;
+            return a.month - b.month;
+        });
+
+        const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        const monthNames = [
+            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+        ];
+
+        let html = '<div class="calendars-wrapper">';
+
+        for (const m of sortedMonths) {
+            const { year, month, days } = m;
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            html += `<div class="month-cal">`;
+            html += `<div class="month-cal-header">${monthNames[month]} ${year}</div>`;
+            html += `<div class="month-cal-grid">`;
+
+            for (const wd of weekdays) {
+                html += `<div class="cal-cell cal-wday">${wd}</div>`;
+            }
+
+            for (let i = 0; i < firstDay; i++) {
+                html += `<div class="cal-cell cal-empty"></div>`;
+            }
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const marks = days.get(d) || [];
+                const hasMarks = marks.length > 0;
+                html += `<div class="cal-cell cal-day${hasMarks ? ' has-marks' : ''}">`;
+                html += `<span class="cal-day-num">${d}</span>`;
+                if (hasMarks) {
+                    html += `<div class="cal-dots">`;
+                    const shown = marks.slice(0, 4);
+                    for (const mark of shown) {
+                        html += `<span class="cal-dot" style="background:${mark.color}" title="${this.escapeHtml(mark.title)}"></span>`;
+                    }
+                    if (marks.length > 4) {
+                        html += `<span class="cal-dot-more">+${marks.length - 4}</span>`;
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div></div>`;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
     private formatDateBr(date: Date): string {
         return date.toLocaleDateString('pt-BR');
     }
@@ -518,22 +648,42 @@ export class JobService {
         return `${y}-${m}-${d}`;
     }
 
-    private getTodayRangeForManausInUtc(): { startIso: string; endIso: string; displayDate: string } {
-        const now = new Date();
-        const parts = new Intl.DateTimeFormat('en-CA', {
-            timeZone: 'America/Manaus',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-        }).formatToParts(now);
+    private getDateRangeForManausInUtc(referenceDate?: string): { startIso: string; endIso: string; displayDate: string } {
+        let displayDate = (referenceDate || '').trim();
 
-        const year = parts.find((p) => p.type === 'year')?.value || `${now.getFullYear()}`;
-        const month = parts.find((p) => p.type === 'month')?.value || `${now.getMonth() + 1}`.padStart(2, '0');
-        const day = parts.find((p) => p.type === 'day')?.value || `${now.getDate()}`.padStart(2, '0');
+        if (!displayDate) {
+            // Usa ontem em horário de Manaus (job roda à 00:00 = já é o dia seguinte)
+            const now = new Date();
+            const yesterdayManaus = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'America/Manaus',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).formatToParts(yesterdayManaus);
 
-        const displayDate = `${year}-${month}-${day}`;
+            const year = parts.find((p) => p.type === 'year')?.value || `${yesterdayManaus.getFullYear()}`;
+            const month = parts.find((p) => p.type === 'month')?.value || `${yesterdayManaus.getMonth() + 1}`.padStart(2, '0');
+            const day = parts.find((p) => p.type === 'day')?.value || `${yesterdayManaus.getDate()}`.padStart(2, '0');
+            displayDate = `${year}-${month}-${day}`;
+        }
+
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(displayDate)) {
+            throw new HttpException(
+                'Data inválida. Use o formato YYYY-MM-DD para salesOrderDate.',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
         const startUtc = new Date(`${displayDate}T00:00:00-04:00`);
         const endUtc = new Date(`${displayDate}T23:59:59.999-04:00`);
+
+        if (Number.isNaN(startUtc.getTime()) || Number.isNaN(endUtc.getTime())) {
+            throw new HttpException(
+                'Data inválida para cálculo do período em Manaus.',
+                HttpStatus.BAD_REQUEST,
+            );
+        }
 
         return {
             startIso: startUtc.toISOString(),

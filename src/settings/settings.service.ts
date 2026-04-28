@@ -197,7 +197,8 @@ export class SettingsService {
             { key: 'GOOGLE_CLIENT_ID', value: process.env.GOOGLE_CLIENT_ID || '', category: 'drive', description: 'Client ID do Google OAuth2' },
             { key: 'GOOGLE_CLIENT_SECRET', value: process.env.GOOGLE_CLIENT_SECRET || '', category: 'drive', description: 'Client Secret do Google OAuth2' },
             { key: 'GOOGLE_REFRESH_TOKEN', value: process.env.GOOGLE_REFRESH_TOKEN || '', category: 'drive', description: 'Refresh Token do Google OAuth2' },
-            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive' },
+            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive (Montador)' },
+            { key: 'GOOGLE_DRIVE_DELIVERY_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive para Datas de Entrega de Material' },
         ];
 
         for (const def of defaults) {
