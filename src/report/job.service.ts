@@ -225,7 +225,9 @@ export class JobService {
         jobId: CodeJobId,
         salesOrderDate?: string,
     ): Promise<string> {
-        const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        // Força novo login a cada execução: Pontta não aceita múltiplas sessões simultâneas
+        // e invalida tokens anteriores quando há novo login, então nunca usamos cache aqui.
+        const token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword, true);
         const { startIso, endIso, displayDate } = this.getDateRangeForManausInUtc(salesOrderDate);
 
         this.pushCodeJobLog(jobId, 'info', 'Buscando pedidos de venda válidos para a data selecionada.', {

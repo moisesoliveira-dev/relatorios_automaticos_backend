@@ -47,12 +47,16 @@ export class PonttaService {
         console.log(`[PonttaService] businessUnitId: "${this.businessUnitId}"`);
     }
 
-    async authenticate(email: string, password: string): Promise<string> {
-        // Retorna token do cache se ainda válido
+    async authenticate(email: string, password: string, forceRefresh = false): Promise<string> {
+        // Retorna token do cache se ainda válido (a menos que forceRefresh seja true)
         const cacheKey = `${email}`;
-        const cached = this.tokenCache.get(cacheKey);
-        if (cached && Date.now() < cached.expiresAt) {
-            return cached.token;
+        if (!forceRefresh) {
+            const cached = this.tokenCache.get(cacheKey);
+            if (cached && Date.now() < cached.expiresAt) {
+                return cached.token;
+            }
+        } else {
+            this.tokenCache.delete(cacheKey);
         }
 
         try {
