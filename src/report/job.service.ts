@@ -133,6 +133,12 @@ export class JobService {
         return logs.slice(-Math.max(1, Math.min(limit, this.maxCodeJobLogs)));
     }
 
+    clearCodeJobLogs(jobId: string) {
+        const normalizedJobId = this.assertCodeJob(jobId);
+        this.codeJobLogs.set(normalizedJobId, []);
+        return { cleared: true };
+    }
+
     startCodeJob(jobId: string) {
         const normalizedJobId = this.assertCodeJob(jobId);
         const state = this.codeJobStates.get(normalizedJobId)!;

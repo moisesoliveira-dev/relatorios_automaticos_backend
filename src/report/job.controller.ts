@@ -22,6 +22,11 @@ export class JobController {
         return this.jobService.getCodeJobLogs(id, Number.isFinite(parsedLimit) ? parsedLimit : 200);
     }
 
+    @Delete('code/:id/logs')
+    clearCodeJobLogs(@Param('id') id: string) {
+        return this.jobService.clearCodeJobLogs(id);
+    }
+
     @Post('code/:id/start')
     startCodeJob(@Param('id') id: string) {
         return this.jobService.startCodeJob(id);
