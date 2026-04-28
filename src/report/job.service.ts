@@ -300,7 +300,7 @@ export class JobService {
             );
         }
 
-        const fileName = `Datas Entrega Material - ${displayDate}.pdf`;
+        const fileName = this.buildDeliveryPdfFilename(rows, displayDate);
         await this.googleDriveService.uploadPdf(pdfBuffer, fileName, monthFolderId);
 
         return `Pedidos lidos: ${scannedSalesOrders} | Ambientes processados: ${rows.length} | PDF salvo: ${fileName}`;
@@ -447,6 +447,30 @@ export class JobService {
         return result;
     }
 
+    private buildDeliveryPdfFilename(rows: DeliveryScheduleRow[], displayDate: string): string {
+        const sanitize = (s: string) =>
+            (s || '').replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim();
+
+        const dateLabel = displayDate.split('-').reverse().join('-'); // YYYY-MM-DD → DD-MM-YYYY
+
+        const uniqueCodes = [...new Set(rows.map((r) => sanitize(r.salesOrderCode)).filter(Boolean))];
+        const uniqueResponsibles = [...new Set(rows.map((r) => sanitize(r.responsibleName)).filter((r) => r && r !== '-'))];
+
+        const codesPart = uniqueCodes.length <= 3
+            ? uniqueCodes.join(', ')
+            : `${uniqueCodes.slice(0, 2).join(', ')} (+${uniqueCodes.length - 2})`;
+
+        const responsiblePart = uniqueResponsibles.length === 1
+            ? ` - ${uniqueResponsibles[0]}`
+            : uniqueResponsibles.length > 1
+                ? ` - ${uniqueResponsibles[0]} (+${uniqueResponsibles.length - 1})`
+                : '';
+
+        const base = `Datas Entrega - ${codesPart}${responsiblePart} - ${dateLabel}`;
+        // Garante que o nome não ultrapasse 200 chars antes da extensão
+        return `${base.slice(0, 200)}.pdf`;
+    }
+
     private async generateDeliveryMaterialDatesPdf(rows: DeliveryScheduleRow[], displayDate: string): Promise<Buffer> {
         const rowsHtml = rows
             .map((row, index) => `
@@ -473,32 +497,32 @@ export class JobService {
   <meta charset="UTF-8" />
   <style>
     * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; color: #222; margin: 24px; }
-    h1 { margin: 0 0 6px; font-size: 18px; color: #1e3a5f; }
-    h2 { margin: 0 0 8px; font-size: 14px; color: #1e3a5f; }
-    .subtitle { margin: 0 0 16px; font-size: 12px; color: #4b5563; }
-    .meta { margin-bottom: 12px; font-size: 11px; color: #374151; }
-    table { width: 100%; border-collapse: collapse; font-size: 10px; }
-    th, td { border: 1px solid #d1d5db; padding: 6px; text-align: left; vertical-align: top; }
-    th { background: #1e3a5f; color: #fff; font-weight: 600; }
+    body { font-family: Arial, sans-serif; color: #222; margin: 20px; }
+    h1 { margin: 0 0 6px; font-size: 20px; color: #1e3a5f; }
+    h2 { margin: 0 0 10px; font-size: 16px; color: #1e3a5f; }
+    .subtitle { margin: 0 0 16px; font-size: 13px; color: #4b5563; }
+    .meta { margin-bottom: 14px; font-size: 12px; color: #374151; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #d1d5db; padding: 9px 8px; text-align: left; vertical-align: top; }
+    th { background: #1e3a5f; color: #fff; font-weight: 600; font-size: 12px; }
     tr:nth-child(even) td { background: #f9fafb; }
-    .footer { margin-top: 12px; font-size: 10px; color: #6b7280; }
+    .footer { margin-top: 14px; font-size: 11px; color: #6b7280; }
     /* Calendários */
-    .calendar-section { margin-top: 24px; page-break-before: always; }
-    .legend { display: flex; gap: 16px; margin-bottom: 12px; font-size: 10px; align-items: center; flex-wrap: wrap; }
-    .legend-item { display: flex; align-items: center; gap: 4px; }
-    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .calendars-wrapper { display: flex; flex-wrap: wrap; gap: 14px; }
-    .month-cal { border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; width: 210px; }
-    .month-cal-header { background: #1e3a5f; color: #fff; text-align: center; padding: 6px 4px; font-size: 11px; font-weight: 700; }
+    .calendar-section { margin-top: 28px; page-break-before: always; }
+    .legend { display: flex; gap: 20px; margin-bottom: 14px; font-size: 12px; align-items: center; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 13px; height: 13px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .calendars-wrapper { display: flex; flex-wrap: wrap; gap: 18px; }
+    .month-cal { border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; width: 290px; }
+    .month-cal-header { background: #1e3a5f; color: #fff; text-align: center; padding: 8px 6px; font-size: 14px; font-weight: 700; }
     .month-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
-    .cal-cell { text-align: center; font-size: 9px; min-height: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 2px 1px; border: 1px solid #f3f4f6; }
-    .cal-wday { background: #f3f4f6; font-weight: 700; color: #374151; min-height: 18px; justify-content: center; font-size: 8px; border-color: #e5e7eb; }
+    .cal-cell { text-align: center; font-size: 12px; min-height: 38px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 3px 2px; border: 1px solid #f3f4f6; }
+    .cal-wday { background: #f3f4f6; font-weight: 700; color: #374151; min-height: 24px; justify-content: center; font-size: 11px; border-color: #e5e7eb; }
     .cal-empty { background: #fafafa; }
-    .cal-day-num { font-weight: 500; line-height: 1.2; }
-    .cal-dots { display: flex; gap: 1px; flex-wrap: wrap; justify-content: center; margin-top: 1px; }
-    .cal-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .cal-dot-more { font-size: 7px; color: #6b7280; line-height: 1; }
+    .cal-day-num { font-weight: 500; line-height: 1.3; }
+    .cal-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+    .cal-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .cal-dot-more { font-size: 9px; color: #6b7280; line-height: 1; }
     .has-marks { background: #f0fdf4; }
   </style>
 </head>
