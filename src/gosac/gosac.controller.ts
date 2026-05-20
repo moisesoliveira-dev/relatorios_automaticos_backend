@@ -236,6 +236,7 @@ export class GosacController {
             environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
+            montadorPercent?: number;
             deliveryDate?: string;
             assemblyStartDate?: string;
             assemblyEndDate?: string;
@@ -260,6 +261,7 @@ export class GosacController {
             environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
+            montadorPercent?: number;
             deliveryDate?: string;
             assemblyStartDate?: string;
             assemblyEndDate?: string;
@@ -278,6 +280,14 @@ export class GosacController {
         return this.generateMontadorPdf(body, res);
     }
 
+    private clampPercent(value: unknown, fallback: number): number {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        if (n < 0) return 0;
+        if (n > 100) return 100;
+        return n;
+    }
+
     private async generateMontadorPdf(
         body: {
             proposalCode: string;
@@ -287,6 +297,7 @@ export class GosacController {
             environments?: Array<{ environmentName: string; environmentValue: number }>;
             ponttaDiscount?: number;
             additionalDiscount?: number;
+            montadorPercent?: number;
             deliveryDate?: string;
             assemblyStartDate?: string;
             assemblyEndDate?: string;
@@ -302,6 +313,7 @@ export class GosacController {
             environmentsCount: body?.environments?.length || 0,
             ponttaDiscount: body?.ponttaDiscount,
             additionalDiscount: body?.additionalDiscount,
+            montadorPercent: body?.montadorPercent,
             deliveryDate: body?.deliveryDate,
             assemblyStartDate: body?.assemblyStartDate,
             assemblyEndDate: body?.assemblyEndDate,
@@ -316,8 +328,9 @@ export class GosacController {
             environmentsCount: body?.environments?.length || 0,
             sendToDrive: body.sendToDrive,
         });
-        const additionalDiscount = body.additionalDiscount ?? 15;
-        const montadorRate = 0.07;
+        const additionalDiscount = this.clampPercent(body.additionalDiscount, 15);
+        const montadorPercent = this.clampPercent(body.montadorPercent, 7);
+        const montadorRate = montadorPercent / 100;
 
         const sourceEnvironments =
             body.environments && body.environments.length > 0
