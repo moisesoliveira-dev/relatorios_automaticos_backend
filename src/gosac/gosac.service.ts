@@ -269,9 +269,9 @@ export class GosacService {
      */
     private async updateGosacTicketQueue(ticketId: number): Promise<void> {
         try {
-            // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=58.
+            // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=62.
             const userId = 71;
-            const queueId = 58;
+            const queueId = 62;
             const url = `${this.gosacBaseUrl}/api/tickets/${ticketId}`;
             const payload = { userId, queueId, status: 'open', obs: '' };
 
