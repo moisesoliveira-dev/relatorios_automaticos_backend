@@ -52,12 +52,17 @@ export class RotationService {
             throw new ConflictException(`Já existe um registro com id ${dto.id}`);
         }
 
+        const turn = dto.turn === true;
+        if (turn) {
+            await this.clearAllTurns();
+        }
+
         const rotation = this.rotationRepository.create({
             id: dto.id,
             name: dto.name,
             identificacao: Number(dto.identificacao),
             queueid: Number(dto.queueid),
-            turn: dto.turn === true,
+            turn,
         });
 
         return this.rotationRepository.save(rotation);
@@ -69,9 +74,31 @@ export class RotationService {
         if (dto.name !== undefined) rotation.name = dto.name;
         if (dto.identificacao !== undefined) rotation.identificacao = Number(dto.identificacao);
         if (dto.queueid !== undefined) rotation.queueid = Number(dto.queueid);
-        if (dto.turn !== undefined) rotation.turn = !!dto.turn;
+
+        if (dto.turn !== undefined) {
+            const turn = !!dto.turn;
+            if (turn) {
+                await this.clearAllTurns(id);
+            }
+            rotation.turn = turn;
+        }
 
         return this.rotationRepository.save(rotation);
+    }
+
+    /** Garante no máximo uma pessoa com turn=true */
+    private async clearAllTurns(exceptId?: string): Promise<void> {
+        const qb = this.rotationRepository
+            .createQueryBuilder()
+            .update(Rotation)
+            .set({ turn: false })
+            .where('turn = :turn', { turn: true });
+
+        if (exceptId) {
+            qb.andWhere('id != :exceptId', { exceptId });
+        }
+
+        await qb.execute();
     }
 
     async remove(id: string): Promise<void> {
