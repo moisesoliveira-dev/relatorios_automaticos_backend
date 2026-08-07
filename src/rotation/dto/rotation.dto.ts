@@ -3,10 +3,12 @@ export class CreateRotationDto {
     name: string;
     identificacao: number;
     queueid: number;
+    turn?: boolean;
 }
 
 export class UpdateRotationDto {
     name?: string;
     identificacao?: number;
     queueid?: number;
+    turn?: boolean;
 }

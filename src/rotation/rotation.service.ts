@@ -57,7 +57,7 @@ export class RotationService {
             name: dto.name,
             identificacao: Number(dto.identificacao),
             queueid: Number(dto.queueid),
-            turn: false,
+            turn: dto.turn === true,
         });
 
         return this.rotationRepository.save(rotation);
@@ -69,7 +69,7 @@ export class RotationService {
         if (dto.name !== undefined) rotation.name = dto.name;
         if (dto.identificacao !== undefined) rotation.identificacao = Number(dto.identificacao);
         if (dto.queueid !== undefined) rotation.queueid = Number(dto.queueid);
-        // turn nunca é alterado por este sistema
+        if (dto.turn !== undefined) rotation.turn = !!dto.turn;
 
         return this.rotationRepository.save(rotation);
     }
