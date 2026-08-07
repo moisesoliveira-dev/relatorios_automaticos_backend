@@ -20,6 +20,7 @@ import { DashboardMetric, SystemLog } from './report/entities/dashboard.entity';
 import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
 import { Rotation } from './rotation/entities/rotation.entity';
+import { PonttaRotation } from './rotation/entities/pontta-rotation.entity';
 
 function parseDatabaseUrl(databaseUrl: string) {
   const parsed = new URL(databaseUrl);
@@ -103,8 +104,8 @@ function parseDatabaseUrl(databaseUrl: string) {
         return {
           name: 'rotation',
           type: 'postgres' as const,
-          entities: [Rotation],
-          // Tabela já existe e é gerenciada por outro sistema
+          entities: [Rotation, PonttaRotation],
+          // Tabelas já existem e são gerenciadas por outro sistema
           synchronize: false,
           logging: false,
           ...parsed,
