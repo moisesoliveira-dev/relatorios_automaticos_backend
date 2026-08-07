@@ -21,48 +21,49 @@ import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
 import { Rotation } from './rotation/entities/rotation.entity';
 
+function parseDatabaseUrl(databaseUrl: string) {
+  const parsed = new URL(databaseUrl);
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port, 10) || 5432,
+    username: decodeURIComponent(parsed.username),
+    password: decodeURIComponent(parsed.password),
+    database: parsed.pathname.replace(/^\//, ''),
+  };
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),
+    // Conexão principal do app (users, settings, reports, etc.)
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
-        // Railway fornece DATABASE_URL automaticamente ao adicionar o plugin PostgreSQL
-        const databaseUrl = configService.get<string>('DATABASE_URL');
+        const databaseUrl = configService.get<string>('DATABASE_URL')?.trim();
         const baseConfig = {
           type: 'postgres' as const,
-          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup, PonttaSalesOrder, GosacSalesOrderLink, Rotation],
+          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup, PonttaSalesOrder, GosacSalesOrderLink],
           synchronize: true,
           logging: false,
         };
 
-        console.log('=== DATABASE CONFIG ===');
+        console.log('=== DATABASE CONFIG (app) ===');
         console.log('DATABASE_URL presente:', !!databaseUrl);
-        console.log('DATABASE_URL raw:', databaseUrl ?? '(não definida)');
 
         if (databaseUrl) {
-          // Parseia a URL manualmente para evitar problemas com o driver pg
-          const parsed = new URL(databaseUrl);
-          const config = {
+          const parsed = parseDatabaseUrl(databaseUrl);
+          console.log('Modo: DATABASE_URL');
+          console.log('Host:', parsed.host);
+          console.log('Database:', parsed.database);
+          console.log('============================');
+          return {
             ...baseConfig,
-            host: parsed.hostname,
-            port: parseInt(parsed.port, 10) || 5432,
-            username: decodeURIComponent(parsed.username),
-            password: decodeURIComponent(parsed.password),
-            database: parsed.pathname.replace(/^\//, ''),
+            ...parsed,
             ssl: { rejectUnauthorized: false },
           };
-          console.log('Modo: DATABASE_URL');
-          console.log('Host:', config.host);
-          console.log('Port:', config.port);
-          console.log('Username:', config.username);
-          console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
-          console.log('Database:', config.database);
-          console.log('======================');
-          return config;
         }
 
         const config = {
@@ -75,12 +76,40 @@ import { Rotation } from './rotation/entities/rotation.entity';
         };
         console.log('Modo: variáveis individuais');
         console.log('Host:', config.host);
-        console.log('Port:', config.port);
-        console.log('Username:', config.username);
-        console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
         console.log('Database:', config.database);
-        console.log('======================');
+        console.log('============================');
         return config;
+      },
+      inject: [ConfigService],
+    }),
+    // Conexão separada só para tb_rotation (outro banco Railway)
+    TypeOrmModule.forRootAsync({
+      name: 'rotation',
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => {
+        const rotationUrl = configService.get<string>('ROTATION_DATABASE_URL')?.trim();
+        console.log('=== DATABASE CONFIG (rotation) ===');
+        console.log('ROTATION_DATABASE_URL presente:', !!rotationUrl);
+
+        if (!rotationUrl) {
+          throw new Error('ROTATION_DATABASE_URL não configurada — necessário para o CRUD de rodízio');
+        }
+
+        const parsed = parseDatabaseUrl(rotationUrl);
+        console.log('Host:', parsed.host);
+        console.log('Database:', parsed.database);
+        console.log('==================================');
+
+        return {
+          name: 'rotation',
+          type: 'postgres' as const,
+          entities: [Rotation],
+          // Tabela já existe e é gerenciada por outro sistema
+          synchronize: false,
+          logging: false,
+          ...parsed,
+          ssl: { rejectUnauthorized: false },
+        };
       },
       inject: [ConfigService],
     }),

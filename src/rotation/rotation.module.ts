@@ -8,7 +8,7 @@ import { PonttaModule } from '../pontta/pontta.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Rotation]),
+        TypeOrmModule.forFeature([Rotation], 'rotation'),
         GosacModule,
         PonttaModule,
     ],

@@ -18,7 +18,7 @@ export class RotationService {
     private readonly ponttaPassword: string;
 
     constructor(
-        @InjectRepository(Rotation)
+        @InjectRepository(Rotation, 'rotation')
         private readonly rotationRepository: Repository<Rotation>,
         private readonly gosacService: GosacService,
         private readonly ponttaService: PonttaService,
