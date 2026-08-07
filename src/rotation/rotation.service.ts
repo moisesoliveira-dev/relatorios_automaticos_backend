@@ -88,17 +88,23 @@ export class RotationService {
 
     /** Garante no máximo uma pessoa com turn=true */
     private async clearAllTurns(exceptId?: string): Promise<void> {
-        const qb = this.rotationRepository
+        if (exceptId) {
+            await this.rotationRepository
+                .createQueryBuilder()
+                .update(Rotation)
+                .set({ turn: false })
+                .where('turn = true')
+                .andWhere('id != :exceptId', { exceptId })
+                .execute();
+            return;
+        }
+
+        await this.rotationRepository
             .createQueryBuilder()
             .update(Rotation)
             .set({ turn: false })
-            .where('turn = :turn', { turn: true });
-
-        if (exceptId) {
-            qb.andWhere('id != :exceptId', { exceptId });
-        }
-
-        await qb.execute();
+            .where('turn = true')
+            .execute();
     }
 
     async remove(id: string): Promise<void> {
