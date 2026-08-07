@@ -6,6 +6,11 @@ export class AppInitService implements OnModuleInit {
     constructor(private settingsService: SettingsService) { }
 
     async onModuleInit() {
+        // Não bloqueia o boot da API (Railway proxy pode ser lento)
+        void this.bootstrapDefaults();
+    }
+
+    private async bootstrapDefaults() {
         try {
             console.log('🔧 Inicializando configurações padrão...');
             await this.settingsService.initializeDefaults();
