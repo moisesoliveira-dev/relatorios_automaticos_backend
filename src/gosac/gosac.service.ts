@@ -269,7 +269,7 @@ export class GosacService {
      */
     private async updateGosacTicketQueue(ticketId: number): Promise<void> {
         try {
-            // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=62.
+            // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=58.
             const userId = 71;
             const queueId = 62;
             const url = `${this.gosacBaseUrl}/api/tickets/${ticketId}`;
@@ -518,6 +518,73 @@ export class GosacService {
                 return await this.ponttaService.getSalesOrderItems(token, salesOrderId);
             }
             throw error;
+        }
+    }
+
+    /**
+     * Lista todos os usuários do GOSAC, percorrendo todas as páginas.
+     */
+    async listAllUsers(): Promise<any[]> {
+        const limit = 25;
+        let pageNumber = 1;
+        const allUsers: any[] = [];
+
+        try {
+            while (true) {
+                const url = `${this.gosacBaseUrl}/api/users`;
+                const response = await axios.get(url, {
+                    headers: {
+                        Authorization: `INTEGRATION ${this.gosacApiKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    params: {
+                        startsWith: '',
+                        limit,
+                        pageNumber,
+                    },
+                });
+
+                const data = response.data;
+                const users: any[] = Array.isArray(data?.users) ? data.users : [];
+                allUsers.push(...users);
+
+                if (!data?.hasMore || users.length === 0) {
+                    break;
+                }
+                pageNumber += 1;
+            }
+
+            return allUsers;
+        } catch (error) {
+            console.error('Erro ao listar usuários GOSAC:', error.response?.data || error.message);
+            throw new HttpException(
+                `Falha ao listar usuários GOSAC: ${error.response?.data?.message || error.message}`,
+                error.response?.status || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /**
+     * Lista todas as filas (queues) do GOSAC.
+     */
+    async listQueues(): Promise<any[]> {
+        try {
+            const url = `${this.gosacBaseUrl}/api/queue`;
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `INTEGRATION ${this.gosacApiKey}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const data = response.data;
+            return Array.isArray(data) ? data : [];
+        } catch (error) {
+            console.error('Erro ao listar filas GOSAC:', error.response?.data || error.message);
+            throw new HttpException(
+                `Falha ao listar filas GOSAC: ${error.response?.data?.message || error.message}`,
+                error.response?.status || HttpStatus.BAD_GATEWAY,
+            );
         }
     }
 }

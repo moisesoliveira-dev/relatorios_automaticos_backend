@@ -723,4 +723,36 @@ export class PonttaService {
             );
         }
     }
+
+    /**
+     * Busca perfis de agenda no Pontta (usado para id do rodízio).
+     */
+    async searchSchedulesProfile(token: string, query: string, size = 20): Promise<any[]> {
+        try {
+            const response = await axios.get(`${this.apiUrl}/schedules/profile`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Businessunit: this.businessUnitId,
+                },
+                params: {
+                    query,
+                    size,
+                    sort: 'contact.name',
+                },
+            });
+
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data?.content)) return data.content;
+            if (Array.isArray(data?.data)) return data.data;
+            return [];
+        } catch (error) {
+            const status = error?.response?.status;
+            const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+            throw new HttpException(
+                `Falha ao buscar perfis Pontta: ${detail}`,
+                status || HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
 }

@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { GosacModule } from './gosac/gosac.module';
+import { RotationModule } from './rotation/rotation.module';
 import { User } from './users/entities/user.entity';
 import { Report, ReportEmail, ReportExecution } from './report/entities/report.entity';
 import { GosacGroup } from './gosac/entities/gosac-group.entity';
@@ -18,6 +19,7 @@ import { GosacSalesOrderLink } from './gosac/entities/gosac-sales-order-link.ent
 import { DashboardMetric, SystemLog } from './report/entities/dashboard.entity';
 import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
+import { Rotation } from './rotation/entities/rotation.entity';
 
 @Module({
   imports: [
@@ -32,7 +34,7 @@ import { Setting } from './settings/entities/setting.entity';
         const databaseUrl = configService.get<string>('DATABASE_URL');
         const baseConfig = {
           type: 'postgres' as const,
-          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup, PonttaSalesOrder, GosacSalesOrderLink],
+          entities: [User, Report, ReportEmail, ReportExecution, DashboardMetric, SystemLog, ScheduledJob, Setting, GosacGroup, PonttaSalesOrder, GosacSalesOrderLink, Rotation],
           synchronize: true,
           logging: false,
         };
@@ -57,7 +59,7 @@ import { Setting } from './settings/entities/setting.entity';
           console.log('Host:', config.host);
           console.log('Port:', config.port);
           console.log('Username:', config.username);
-          console.log('Password:', config.password);
+          console.log('Password:', config.password ? `${config.password.slice(0, 3)}***` : '(vazia)');
           console.log('Database:', config.database);
           console.log('======================');
           return config;
@@ -87,6 +89,7 @@ import { Setting } from './settings/entities/setting.entity';
     SettingsModule,
     ReportModule,
     GosacModule,
+    RotationModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppInitService],
