@@ -17,6 +17,7 @@ export interface AuthResponse {
         email: string;
         name: string;
         role: string;
+        tabs: string[];
         avatarUrl: string | null;
     };
 }
@@ -62,6 +63,7 @@ export class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                tabs: user.tabs || [],
                 avatarUrl: user.avatarUrl,
             },
         };
@@ -88,6 +90,7 @@ export class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                tabs: user.tabs || [],
                 avatarUrl: user.avatarUrl,
             },
         };
@@ -117,6 +120,7 @@ export class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                tabs: user.tabs || [],
                 avatarUrl: user.avatarUrl,
             },
         };

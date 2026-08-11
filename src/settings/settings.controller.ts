@@ -64,8 +64,6 @@ export class SettingsController {
     @Get('tabs/navigation')
     @Roles(UserRole.MASTER, UserRole.ADMIN, UserRole.MANAGER, UserRole.USER)
     async getNavigationTabs(@Request() req: any) {
-        const role = req.user?.role as UserRole;
-        const tabs = await this.settingsService.getTabsForRole(role);
-        return { role, tabs };
+        return this.settingsService.getNavigationTabsForUser(req.user.sub, req.user?.role as UserRole);
     }
 }

@@ -4,7 +4,8 @@ import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Setting } from './entities/setting.entity';
 import { CreateSettingDto, UpdateSettingDto } from './dto/setting.dto';
-import { UserRole } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
+import { MASTER_TABS, normalizeTabs } from '../users/tabs.constants';
 
 @Injectable()
 export class SettingsService {
@@ -27,6 +28,8 @@ export class SettingsService {
     constructor(
         @InjectRepository(Setting)
         private settingsRepository: Repository<Setting>,
+        @InjectRepository(User)
+        private usersRepository: Repository<User>,
     ) {
         // Usa a chave de criptografia do ambiente ou gera uma padrão
         const encryptionKey = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production-32-chars';
@@ -236,6 +239,21 @@ export class SettingsService {
             .split(',')
             .map((item) => item.trim())
             .filter(Boolean);
+    }
+
+    async getNavigationTabsForUser(userId: string, jwtRole?: UserRole): Promise<{ role: UserRole; tabs: string[] }> {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        const role = (user?.role || jwtRole || UserRole.USER) as UserRole;
+
+        if (role === UserRole.MASTER) {
+            return { role, tabs: [...MASTER_TABS] };
+        }
+
+        if (user?.tabs?.length) {
+            return { role, tabs: normalizeTabs(user.tabs) };
+        }
+
+        return { role, tabs: await this.getTabsForRole(role) };
     }
 
     // Retorna configurações SMTP para o EmailService

@@ -1,5 +1,5 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
-import { UserRole } from '../entities/user.entity';
+import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsArray, IsBoolean, ArrayMinSize } from 'class-validator';
+import { UserRole, UserStatus } from '../entities/user.entity';
 
 export class CreateUserDto {
     @IsEmail()
@@ -16,6 +16,11 @@ export class CreateUserDto {
     @IsOptional()
     @IsEnum(UserRole)
     role?: UserRole;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    tabs?: string[];
 }
 
 export class SelfRegisterDto {
@@ -47,6 +52,11 @@ export class CreateMasterDto {
 export class InviteUserDto {
     @IsEmail()
     email: string;
+
+    @IsArray()
+    @ArrayMinSize(1, { message: 'Selecione ao menos uma aba' })
+    @IsString({ each: true })
+    tabs: string[];
 
     @IsOptional()
     @IsEnum(UserRole)
@@ -83,11 +93,28 @@ export class UpdateUserDto {
     role?: UserRole;
 
     @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    tabs?: string[];
+
+    @IsOptional()
+    @IsBoolean()
     isActive?: boolean;
+
+    @IsOptional()
+    @IsEnum(UserStatus)
+    status?: UserStatus;
 
     @IsOptional()
     @IsString()
     avatarUrl?: string;
+}
+
+export class ApproveRegistrationDto {
+    @IsArray()
+    @ArrayMinSize(1, { message: 'Selecione ao menos uma aba' })
+    @IsString({ each: true })
+    tabs: string[];
 }
 
 export class LoginDto {

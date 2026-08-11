@@ -7,6 +7,7 @@ import { User, UserRole, UserStatus } from './entities/user.entity';
 import { CreateUserDto, UpdateUserDto, SelfRegisterDto } from './dto/user.dto';
 import { EmailService } from '../email/email.service';
 import { SettingsService } from '../settings/settings.service';
+import { MASTER_TABS, deriveRoleFromTabs, normalizeTabs } from './tabs.constants';
 
 @Injectable()
 export class UsersService {
@@ -51,6 +52,7 @@ export class UsersService {
             ...createUserDto,
             password: hashedPassword,
             role: UserRole.MASTER,
+            tabs: [...MASTER_TABS],
             status: UserStatus.ACTIVE,
             isActive: true,
         });
@@ -91,19 +93,24 @@ export class UsersService {
     async getSelfRegisteredPending(): Promise<User[]> {
         return this.usersRepository.find({
             where: { status: UserStatus.PENDING, inviteToken: IsNull(), inviteCode: IsNull() },
-            select: ['id', 'email', 'name', 'role', 'status', 'createdAt'],
+            select: ['id', 'email', 'name', 'role', 'tabs', 'status', 'createdAt'],
             order: { createdAt: 'DESC' },
         });
     }
 
-    async approveRegistration(id: string, role: UserRole): Promise<User> {
+    async approveRegistration(id: string, tabs: string[]): Promise<User> {
         const user = await this.findOne(id);
         if (user.role === UserRole.MASTER) {
             throw new ForbiddenException('Não é possível alterar o master');
         }
+        const normalized = normalizeTabs(tabs);
+        if (!normalized.length) {
+            throw new ForbiddenException('Selecione ao menos uma aba');
+        }
         user.status = UserStatus.ACTIVE;
         user.isActive = true;
-        user.role = role;
+        user.tabs = normalized;
+        user.role = deriveRoleFromTabs(normalized);
         return this.usersRepository.save(user);
     }
 
@@ -115,42 +122,40 @@ export class UsersService {
         await this.usersRepository.remove(user);
     }
 
-    async createInvite(inviterUserId: string, email: string, role: UserRole = UserRole.USER): Promise<{ inviteToken: string; inviteCode: string; expiresAt: Date; user: User; frontendUrl: string; emailSent: boolean; emailError?: string }> {
-        // Verifica se o usuário que está convidando é master ou admin
+    async createInvite(inviterUserId: string, email: string, tabs: string[]): Promise<{ inviteToken: string; inviteCode: string; expiresAt: Date; user: User; frontendUrl: string; emailSent: boolean; emailError?: string }> {
         const inviter = await this.findOne(inviterUserId);
         if (inviter.role !== UserRole.MASTER && inviter.role !== UserRole.ADMIN) {
             throw new ForbiddenException('Apenas master ou admin podem convidar usuários');
         }
 
-        // Não permite criar convite para master
-        if (role === UserRole.MASTER) {
-            throw new ForbiddenException('Não é possível convidar usuário como master');
+        const normalizedTabs = normalizeTabs(tabs);
+        if (!normalizedTabs.length) {
+            throw new ForbiddenException('Selecione ao menos uma aba');
         }
+        const role = deriveRoleFromTabs(normalizedTabs);
 
-        // Verifica se o email já existe
         const existingUser = await this.findByEmail(email);
         if (existingUser) {
             throw new ConflictException('Este email já está cadastrado');
         }
 
-        // Gera token de convite e código de 6 dígitos
         const inviteToken = crypto.randomBytes(32).toString('hex');
-        const inviteCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6 dígitos
+        const inviteCode = Math.floor(100000 + Math.random() * 900000).toString();
         const expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expira em 10 minutos
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
-        // Cria usuário pendente
         const hashedToken = await bcrypt.hash(inviteToken, 10);
         const user = this.usersRepository.create({
             email,
-            password: '', // Será definido no registro
+            password: '',
             name: '',
-            role: role,
+            role,
+            tabs: normalizedTabs,
             status: UserStatus.PENDING,
             isActive: false,
             invitedBy: inviterUserId,
             inviteToken: hashedToken,
-            inviteCode: inviteCode, // Código de 6 dígitos
+            inviteCode: inviteCode,
             inviteExpiresAt: expiresAt,
         });
 
@@ -172,7 +177,6 @@ export class UsersService {
                         <h2 style="color: #8B5CF6;">👋 Você foi convidado!</h2>
                         <p>Olá,</p>
                         <p><strong>${inviter.name}</strong> convidou você para fazer parte do CMM System.</p>
-                        <p>Seu perfil será: <strong>${role}</strong></p>
                         
                         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
                             <p style="margin: 0; font-size: 14px; color: #64748B;">Seu código de convite é:</p>
@@ -281,9 +285,21 @@ export class UsersService {
 
     async findAll(): Promise<User[]> {
         return this.usersRepository.find({
-            select: ['id', 'email', 'name', 'role', 'status', 'isActive', 'createdAt', 'lastLoginAt'],
+            select: ['id', 'email', 'name', 'role', 'tabs', 'status', 'isActive', 'createdAt', 'lastLoginAt'],
             order: { createdAt: 'DESC' }
         });
+    }
+
+    async getEffectiveTabs(userId: string): Promise<{ role: UserRole; tabs: string[] }> {
+        const user = await this.findOne(userId);
+        if (user.role === UserRole.MASTER) {
+            return { role: user.role, tabs: [...MASTER_TABS] };
+        }
+        if (user.tabs?.length) {
+            return { role: user.role, tabs: normalizeTabs(user.tabs) };
+        }
+        const fallback = await this.settingsService.getTabsForRole(user.role);
+        return { role: user.role, tabs: fallback };
     }
 
     async findOne(id: string): Promise<User> {
@@ -301,13 +317,27 @@ export class UsersService {
     async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
         const user = await this.findOne(id);
 
-        // Não permite alterar role do master
         if (user.role === UserRole.MASTER && updateUserDto.role && updateUserDto.role !== UserRole.MASTER) {
             throw new ForbiddenException('Não é possível alterar a role do usuário master');
         }
 
         if (updateUserDto.password) {
             updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
+        }
+
+        if (updateUserDto.tabs !== undefined) {
+            if (user.role === UserRole.MASTER) {
+                user.tabs = [...MASTER_TABS];
+            } else {
+                const normalized = normalizeTabs(updateUserDto.tabs);
+                if (!normalized.length) {
+                    throw new ForbiddenException('Selecione ao menos uma aba');
+                }
+                user.tabs = normalized;
+                user.role = deriveRoleFromTabs(normalized);
+            }
+            delete (updateUserDto as any).tabs;
+            delete (updateUserDto as any).role;
         }
 
         Object.assign(user, updateUserDto);
@@ -336,10 +366,9 @@ export class UsersService {
     async getPendingInvites(): Promise<any[]> {
         const pendingUsers = await this.usersRepository.find({
             where: { status: UserStatus.PENDING },
-            select: ['id', 'email', 'role', 'invitedBy', 'inviteToken', 'inviteExpiresAt', 'createdAt']
+            select: ['id', 'email', 'role', 'tabs', 'invitedBy', 'inviteToken', 'inviteExpiresAt', 'createdAt']
         });
 
-        // Busca os dados do usuário que convidou
         const result = await Promise.all(pendingUsers.map(async (user) => {
             let inviter: { id: string; name: string; email: string } | null = null;
             if (user.invitedBy) {
@@ -354,6 +383,7 @@ export class UsersService {
                 id: user.id,
                 email: user.email,
                 role: user.role,
+                tabs: user.tabs || [],
                 inviteToken: user.inviteToken,
                 inviteExpiresAt: user.inviteExpiresAt,
                 invitedBy: inviter,

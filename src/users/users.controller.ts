@@ -10,7 +10,7 @@ import {
     Request,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, InviteUserDto, ApproveRegistrationDto } from './dto/user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -30,7 +30,7 @@ export class UsersController {
     @Post('invite')
     @Roles(UserRole.MASTER, UserRole.ADMIN)
     async inviteUser(@Request() req: any, @Body() inviteDto: InviteUserDto) {
-        const result = await this.usersService.createInvite(req.user.sub, inviteDto.email, inviteDto.role);
+        const result = await this.usersService.createInvite(req.user.sub, inviteDto.email, inviteDto.tabs);
         const inviteLink = `${result.frontendUrl}/invite`;
         return {
             message: result.emailSent
@@ -40,6 +40,7 @@ export class UsersController {
                 id: result.user.id,
                 email: result.user.email,
                 role: result.user.role,
+                tabs: result.user.tabs,
             },
             inviteCode: result.inviteCode,
             inviteLink,
@@ -57,8 +58,8 @@ export class UsersController {
 
     @Post('registrations/:id/approve')
     @Roles(UserRole.MASTER, UserRole.ADMIN)
-    approveRegistration(@Param('id') id: string, @Body() body: { role: UserRole }) {
-        return this.usersService.approveRegistration(id, body.role || UserRole.USER);
+    approveRegistration(@Param('id') id: string, @Body() body: ApproveRegistrationDto) {
+        return this.usersService.approveRegistration(id, body.tabs);
     }
 
     @Delete('registrations/:id')
