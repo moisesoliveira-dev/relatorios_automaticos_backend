@@ -314,28 +314,34 @@ export class UsersService {
         return this.usersRepository.findOne({ where: { email } });
     }
 
-    async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
+    async update(
+        id: string,
+        updateUserDto: UpdateUserDto,
+        actor?: { sub?: string; role?: UserRole },
+    ): Promise<User> {
         const user = await this.findOne(id);
 
-        if (user.role === UserRole.MASTER && updateUserDto.role && updateUserDto.role !== UserRole.MASTER) {
-            throw new ForbiddenException('Não é possível alterar a role do usuário master');
+        if (user.role === UserRole.MASTER) {
+            throw new ForbiddenException('Não é possível editar o usuário master por este fluxo');
         }
 
         if (updateUserDto.password) {
+            if (actor?.role !== UserRole.MASTER) {
+                throw new ForbiddenException('Apenas o master pode alterar a senha de outros usuários');
+            }
+            if (updateUserDto.password.length < 6) {
+                throw new ForbiddenException('A senha deve ter no mínimo 6 caracteres');
+            }
             updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
         }
 
         if (updateUserDto.tabs !== undefined) {
-            if (user.role === UserRole.MASTER) {
-                user.tabs = [...MASTER_TABS];
-            } else {
-                const normalized = normalizeTabs(updateUserDto.tabs);
-                if (!normalized.length) {
-                    throw new ForbiddenException('Selecione ao menos uma aba');
-                }
-                user.tabs = normalized;
-                user.role = deriveRoleFromTabs(normalized);
+            const normalized = normalizeTabs(updateUserDto.tabs);
+            if (!normalized.length) {
+                throw new ForbiddenException('Selecione ao menos uma aba');
             }
+            user.tabs = normalized;
+            user.role = deriveRoleFromTabs(normalized);
             delete (updateUserDto as any).tabs;
             delete (updateUserDto as any).role;
         }

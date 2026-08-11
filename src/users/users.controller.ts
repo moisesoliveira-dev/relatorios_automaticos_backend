@@ -92,8 +92,9 @@ export class UsersController {
     }
 
     @Patch(':id')
-    update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-        return this.usersService.update(id, updateUserDto);
+    @Roles(UserRole.MASTER, UserRole.ADMIN)
+    update(@Request() req: any, @Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+        return this.usersService.update(id, updateUserDto, req.user);
     }
 
     @Delete(':id')
