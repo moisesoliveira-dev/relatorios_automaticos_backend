@@ -59,7 +59,7 @@ export class PonttaRotationService {
             projetistaid: dto.projetistaid,
             name: dto.name,
             turn,
-            turn_v: dto.turn_v === undefined ? true : !!dto.turn_v,
+            turn_v: true,
         });
 
         return this.repository.save(row);
@@ -70,7 +70,7 @@ export class PonttaRotationService {
 
         if (dto.projetistaid !== undefined) row.projetistaid = dto.projetistaid;
         if (dto.name !== undefined) row.name = dto.name;
-        if (dto.turn_v !== undefined) row.turn_v = !!dto.turn_v;
+        row.turn_v = true;
 
         if (dto.turn !== undefined) {
             const turn = !!dto.turn;
