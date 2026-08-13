@@ -15,17 +15,15 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/entities/user.entity';
+import { TabsGuard } from '../auth/guards/tabs.guard';
+import { Tabs } from '../auth/decorators/tabs.decorator';
 import { GosacService } from './gosac.service';
 import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './dto/gosac.dto';
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
 
 @Controller('gosac')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.MASTER, UserRole.ADMIN)
+@UseGuards(JwtAuthGuard, TabsGuard)
 export class GosacController {
     constructor(
         private readonly gosacService: GosacService,
@@ -38,6 +36,7 @@ export class GosacController {
      * Pesquisa tickets no GOSAC
      */
     @Get('tickets/search')
+    @Tabs('gosac-pontta/grupos')
     async searchTickets(@Query('q') q: string) {
         console.log('[GosacGruposAPI] GET /gosac/tickets/search', { q });
         if (!q || q.trim().length === 0) {
@@ -54,6 +53,7 @@ export class GosacController {
      * Lista todos os grupos cadastrados
      */
     @Get('groups')
+    @Tabs('gosac-pontta/grupos')
     async findAllGroups() {
         console.log('[GosacGruposAPI] GET /gosac/groups');
         const groups = await this.gosacService.findAllGroups();
@@ -66,6 +66,7 @@ export class GosacController {
      * Busca um grupo por ID
      */
     @Get('groups/:id')
+    @Tabs('gosac-pontta/grupos')
     async findGroupById(@Param('id') id: string) {
         return this.gosacService.findGroupById(id);
     }
@@ -75,6 +76,7 @@ export class GosacController {
      * Cadastra uma associação grupo GOSAC ↔ Pontta
      */
     @Post('groups')
+    @Tabs('gosac-pontta/grupos')
     async createGroup(@Body() dto: CreateGosacGroupDto) {
         console.log('[GosacGruposAPI] POST /gosac/groups', {
             gosacTicketId: dto?.gosacTicketId,
@@ -91,6 +93,7 @@ export class GosacController {
      * Atualiza um grupo
      */
     @Patch('groups/:id')
+    @Tabs('gosac-pontta/grupos')
     async updateGroup(@Param('id') id: string, @Body() dto: UpdateGosacGroupDto) {
         return this.gosacService.updateGroup(id, dto);
     }
@@ -100,6 +103,7 @@ export class GosacController {
      * Ativa/desativa um grupo
      */
     @Patch('groups/:id/toggle')
+    @Tabs('gosac-pontta/grupos')
     async toggleGroup(@Param('id') id: string) {
         console.log('[GosacGruposAPI] PATCH /gosac/groups/:id/toggle', { id });
         const updated = await this.gosacService.toggleGroup(id);
@@ -112,6 +116,7 @@ export class GosacController {
      * Remove um grupo
      */
     @Delete('groups/:id')
+    @Tabs('gosac-pontta/grupos')
     async deleteGroup(@Param('id') id: string) {
         console.log('[GosacGruposAPI] DELETE /gosac/groups/:id', { id });
         await this.gosacService.deleteGroup(id);
@@ -126,6 +131,7 @@ export class GosacController {
      * Pesquisa pedidos de venda no Pontta
      */
     @Get('sales-orders/search')
+    @Tabs('gosac-pontta/grupos', 'gosac-pontta/pagamento-montador')
     async searchSalesOrders(@Query('q') q?: string) {
         // console.log('[MontadorAPI] GET /gosac/sales-orders/search', { q });
         const results = await this.gosacService.searchSalesOrders(q);
@@ -138,6 +144,7 @@ export class GosacController {
      * Associa um pedido de venda a um grupo
      */
     @Post('groups/:id/sales-orders')
+    @Tabs('gosac-pontta/grupos')
     async linkSalesOrder(@Param('id') id: string, @Body() dto: LinkSalesOrderDto) {
         console.log('[GosacGruposAPI] POST /gosac/groups/:id/sales-orders', {
             groupId: id,
@@ -159,6 +166,7 @@ export class GosacController {
      * Remove associação entre pedido de venda e grupo
      */
     @Delete('groups/:groupId/sales-orders/:salesOrderId')
+    @Tabs('gosac-pontta/grupos')
     async unlinkSalesOrder(
         @Param('groupId') groupId: string,
         @Param('salesOrderId') salesOrderId: string,
@@ -176,6 +184,7 @@ export class GosacController {
      * Atualiza o logotipo da empresa usado nos PDFs
      */
     @Post('logo')
+    @Tabs('gosac-pontta/pagamento-montador')
     @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
     async uploadLogo(@UploadedFile() file: Express.Multer.File) {
         console.log('[MontadorAPI] POST /gosac/logo', {
@@ -196,6 +205,7 @@ export class GosacController {
      * Lista orçamentos ativos no Pontta (primeiros 10)
      */
     @Get('proposals')
+    @Tabs('gosac-pontta/pagamento-montador')
     async getProposals(@Query('q') q?: string) {
         return this.gosacService.getProposals(q);
     }
@@ -205,6 +215,7 @@ export class GosacController {
      * Busca os ambientes (itens) de um orçamento
      */
     @Get('proposals/:id/items')
+    @Tabs('gosac-pontta/pagamento-montador')
     async getProposalItems(@Param('id') id: string) {
         return this.gosacService.getProposalItems(id);
     }
@@ -214,6 +225,7 @@ export class GosacController {
      * Busca os ambientes (itens) de um pedido de venda
      */
     @Get('sales-orders/:id/items')
+    @Tabs('gosac-pontta/pagamento-montador')
     async getSalesOrderItems(@Param('id') id: string) {
         console.log('[MontadorAPI] GET /gosac/sales-orders/:id/items', { id });
         const items = await this.gosacService.getSalesOrderItems(id);
@@ -227,6 +239,7 @@ export class GosacController {
      * Se sendToDrive=true e o Drive estiver configurado, também faz upload.
      */
     @Post('proposals/montador-pdf')
+    @Tabs('gosac-pontta/pagamento-montador')
     async generateMontadorPdfFromProposal(
         @Body() body: {
             proposalCode: string;
@@ -252,6 +265,7 @@ export class GosacController {
      * Gera PDF de pagamento do montador para um ambiente usando pedido de venda.
      */
     @Post('sales-orders/montador-pdf')
+    @Tabs('gosac-pontta/pagamento-montador')
     async generateMontadorPdfFromSalesOrder(
         @Body() body: {
             proposalCode: string;

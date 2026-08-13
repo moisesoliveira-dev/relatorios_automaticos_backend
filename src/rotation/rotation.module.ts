@@ -8,12 +8,14 @@ import { PonttaRotationService } from './pontta-rotation.service';
 import { PonttaRotationController } from './pontta-rotation.controller';
 import { GosacModule } from '../gosac/gosac.module';
 import { PonttaModule } from '../pontta/pontta.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([Rotation, PonttaRotation], 'rotation'),
         GosacModule,
         PonttaModule,
+        SettingsModule,
     ],
     controllers: [RotationController, PonttaRotationController],
     providers: [RotationService, PonttaRotationService],

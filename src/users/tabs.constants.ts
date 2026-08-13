@@ -44,6 +44,29 @@ export function normalizeTabs(tabs?: string[] | null): string[] {
   return cleaned;
 }
 
+/**
+ * Verifica se o usuário pode acessar a aba exigida.
+ * Filho NÃO herda de irmãos via pai: ter `gosac-pontta` + `gosac-pontta/grupos`
+ * não libera `gosac-pontta/rodizio`. O pai sozinho (expandido em normalizeTabs)
+ * inclui todos os filhos, então o match exato cobre o acesso total.
+ */
+export function userCanAccessTab(userTabs: string[], required: string): boolean {
+  const set = new Set(userTabs);
+  if (set.has(required)) return true;
+
+  // Rota pai: qualquer filho concede acesso à seção
+  if (!required.includes('/')) {
+    return [...set].some((t) => t.startsWith(`${required}/`));
+  }
+
+  return false;
+}
+
+export function userCanAccessAnyTab(userTabs: string[], requiredTabs: string[]): boolean {
+  if (!requiredTabs.length) return true;
+  return requiredTabs.some((tab) => userCanAccessTab(userTabs, tab));
+}
+
 /** Deriva role interna para guards de API a partir das abas escolhidas. */
 export function deriveRoleFromTabs(tabs: string[]): UserRole {
   const normalized = normalizeTabs(tabs);

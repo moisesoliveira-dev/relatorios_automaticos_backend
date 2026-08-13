@@ -11,12 +11,15 @@ import {
     ParseUUIDPipe,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TabsGuard } from '../auth/guards/tabs.guard';
+import { Tabs } from '../auth/decorators/tabs.decorator';
 import { DashboardService } from './dashboard.service';
 import { ReportService } from './report.service';
 import { CreateReportEmailDto, UpdateReportEmailDto } from './dto/report.dto';
 
 @Controller('dashboard')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TabsGuard)
+@Tabs('dashboard', 'reports')
 export class DashboardController {
     constructor(
         private readonly dashboardService: DashboardService,

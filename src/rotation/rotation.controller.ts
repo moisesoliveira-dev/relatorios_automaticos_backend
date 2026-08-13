@@ -10,15 +10,14 @@ import {
     UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/entities/user.entity';
+import { TabsGuard } from '../auth/guards/tabs.guard';
+import { Tabs } from '../auth/decorators/tabs.decorator';
 import { RotationService } from './rotation.service';
 import { CreateRotationDto, UpdateRotationDto } from './dto/rotation.dto';
 
 @Controller('rotation')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.MASTER, UserRole.ADMIN)
+@UseGuards(JwtAuthGuard, TabsGuard)
+@Tabs('gosac-pontta/rodizio')
 export class RotationController {
     constructor(private readonly rotationService: RotationService) { }
 

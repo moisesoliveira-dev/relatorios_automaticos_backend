@@ -2,6 +2,8 @@ import { Controller, Post, Body, Get, Query, Res, HttpStatus, UseGuards, BadRequ
 import type { Response, Request } from 'express';
 import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TabsGuard } from '../auth/guards/tabs.guard';
+import { Tabs } from '../auth/decorators/tabs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { IsEmail, IsNotEmpty, IsOptional, IsString, IsBoolean } from 'class-validator';
 
@@ -35,7 +37,8 @@ export class SendReportDto {
 }
 
 @Controller('report')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TabsGuard)
+@Tabs('reports')
 export class ReportController {
     constructor(private readonly reportService: ReportService) { }
 

@@ -1,10 +1,13 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TabsGuard } from '../auth/guards/tabs.guard';
+import { Tabs } from '../auth/decorators/tabs.decorator';
 import { JobService } from './job.service';
 import { CreateJobDto, RunCodeJobNowDto, UpdateJobDto } from './dto/job.dto';
 
 @Controller('jobs')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TabsGuard)
+@Tabs('jobs')
 export class JobController {
     constructor(private readonly jobService: JobService) { }
 
