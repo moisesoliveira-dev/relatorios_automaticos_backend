@@ -2,7 +2,7 @@ import { Entity, PrimaryColumn, Column } from 'typeorm';
 
 @Entity('tb_rotation')
 export class Rotation {
-    /** ID do perfil no Pontta (schedules/profile) — coluna text no banco */
+    /** ID do cooperador no Pontta (cooperatorId de /api/users) — coluna text no banco */
     @PrimaryColumn({ type: 'text' })
     id: string;
 

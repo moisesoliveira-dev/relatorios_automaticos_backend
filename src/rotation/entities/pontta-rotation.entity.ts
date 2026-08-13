@@ -5,7 +5,7 @@ export class PonttaRotation {
     @PrimaryGeneratedColumn()
     id: number;
 
-    /** ID do perfil no Pontta (schedules/profile) */
+    /** ID do cooperador no Pontta (cooperatorId de /api/users) */
     @Column({ type: 'text', name: 'projetistaid', nullable: true })
     projetistaid: string;
 

@@ -725,34 +725,65 @@ export class PonttaService {
     }
 
     /**
-     * Busca perfis de agenda no Pontta (usado para id do rodízio).
+     * Busca usuários no Pontta (/api/users).
+     * O campo associado aos rodízios é cooperatorId (exposto como `id` na resposta normalizada).
      */
-    async searchSchedulesProfile(token: string, query: string, size = 20): Promise<any[]> {
+    async searchUsers(token: string, query: string, size = 25): Promise<Array<{
+        id: string;
+        cooperatorId: string;
+        userId: string;
+        name: string;
+        email?: string;
+        activated?: boolean;
+        blocked?: boolean;
+        [key: string]: any;
+    }>> {
         try {
-            const response = await axios.get(`${this.apiUrl}/schedules/profile`, {
+            const response = await axios.get(`${this.apiUrl}/users`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     Businessunit: this.businessUnitId,
                 },
                 params: {
-                    query,
+                    q: query,
+                    page: 0,
                     size,
-                    sort: 'contact.name',
+                    sort: 'name',
                 },
             });
 
             const data = response.data;
-            if (Array.isArray(data)) return data;
-            if (Array.isArray(data?.content)) return data.content;
-            if (Array.isArray(data?.data)) return data.data;
-            return [];
+            const list: any[] = Array.isArray(data)
+                ? data
+                : Array.isArray(data?.content)
+                    ? data.content
+                    : Array.isArray(data?.data)
+                        ? data.data
+                        : [];
+
+            return list
+                .filter((u) => !!u?.cooperatorId)
+                .map((u) => ({
+                    ...u,
+                    // id usado pelos rodízios = cooperatorId
+                    id: String(u.cooperatorId),
+                    cooperatorId: String(u.cooperatorId),
+                    userId: String(u.id),
+                    name: u.name || u.email || 'Sem nome',
+                    email: u.email || undefined,
+                }));
         } catch (error) {
             const status = error?.response?.status;
             const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
             throw new HttpException(
-                `Falha ao buscar perfis Pontta: ${detail}`,
+                `Falha ao buscar usuários Pontta: ${detail}`,
                 status || HttpStatus.BAD_GATEWAY,
             );
         }
+    }
+
+    /** @deprecated use searchUsers — mantido para compatibilidade de chamadas antigas */
+    async searchSchedulesProfile(token: string, query: string, size = 25): Promise<any[]> {
+        return this.searchUsers(token, query, size);
     }
 }

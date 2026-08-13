@@ -105,12 +105,12 @@ export class PonttaRotationService {
     async searchPonttaProfiles(query: string): Promise<any[]> {
         let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
         try {
-            return await this.ponttaService.searchSchedulesProfile(token, query);
+            return await this.ponttaService.searchUsers(token, query);
         } catch (error) {
             if (error?.status === 401 || error?.response?.status === 401) {
                 this.ponttaService.clearTokenCache(this.ponttaEmail);
                 token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-                return await this.ponttaService.searchSchedulesProfile(token, query);
+                return await this.ponttaService.searchUsers(token, query);
             }
             throw error;
         }
