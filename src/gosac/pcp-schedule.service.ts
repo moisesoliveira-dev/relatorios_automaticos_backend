@@ -35,6 +35,8 @@ export interface PcpScheduleResponse {
     asOf: string;
     salesOrders: PcpSalesOrderSchedule[];
     calendar: PcpCalendarDay[];
+    /** true = datas prontas, ambientes ainda sendo carregados / vazios */
+    environmentsPending?: boolean;
 }
 
 const AREA_OFFSETS: Record<PcpAreaKey, number> = {
@@ -63,13 +65,13 @@ export class PcpScheduleService {
     private readonly ponttaEmail: string;
     private readonly ponttaPassword: string;
 
-    /** Cache curto para evitar rajadas de chamadas ao Pontta no refresh. */
-    private cache: { key: string; expiresAt: number; value: PcpScheduleResponse } | null = null;
-    private static readonly CACHE_TTL_MS = 2 * 60 * 1000;
-    private static readonly PAGE_DELAY_MS = 350;
-    private static readonly ITEM_DELAY_MS = 200;
+    private fullCache: { key: string; expiresAt: number; value: PcpScheduleResponse } | null = null;
+    private summaryCache: { key: string; expiresAt: number; orders: ReturnType<PcpScheduleService['mapSalesOrder']>[] } | null = null;
+
+    private static readonly CACHE_TTL_MS = 5 * 60 * 1000;
     private static readonly MAX_PAGES = 8;
-    private static readonly PAGE_SIZE = 50;
+    private static readonly PAGE_SIZE = 100;
+    private static readonly ITEM_CONCURRENCY = 5;
 
     constructor(
         private readonly ponttaService: PonttaService,
@@ -79,15 +81,63 @@ export class PcpScheduleService {
         this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '***REMOVIDO***';
     }
 
-    async getSchedule(query?: string): Promise<PcpScheduleResponse> {
+    async getSchedule(query?: string, light = false): Promise<PcpScheduleResponse> {
         const cacheKey = `q:${(query || '').trim().toLowerCase()}`;
-        const cached = this.cache;
-        if (cached && cached.key === cacheKey && cached.expiresAt > Date.now()) {
-            return cached.value;
+
+        if (!light) {
+            const cached = this.fullCache;
+            if (cached && cached.key === cacheKey && cached.expiresAt > Date.now()) {
+                return cached.value;
+            }
         }
 
         const asOf = this.toDateString(this.todayLocal());
         const asOfDate = this.parseDateOnly(asOf)!;
+        const withDelivery = await this.getEligibleOrders(asOf, asOfDate, query);
+
+        if (light) {
+            const workingRows = withDelivery.map((order) => this.buildWorkingRowWithoutItems(order));
+            const resolved = this.resolveConflicts(workingRows);
+            return {
+                asOf,
+                salesOrders: resolved,
+                calendar: this.buildCalendar(resolved),
+                environmentsPending: true,
+            };
+        }
+
+        const workingRows = await this.buildWorkingRowsWithItems(withDelivery);
+        const resolved = this.resolveConflicts(workingRows);
+        const response: PcpScheduleResponse = {
+            asOf,
+            salesOrders: resolved,
+            calendar: this.buildCalendar(resolved),
+            environmentsPending: false,
+        };
+
+        this.fullCache = {
+            key: cacheKey,
+            expiresAt: Date.now() + PcpScheduleService.CACHE_TTL_MS,
+            value: response,
+        };
+
+        return response;
+    }
+
+    private async getEligibleOrders(
+        asOf: string,
+        asOfDate: Date,
+        query?: string,
+    ): Promise<Array<{ ponttaId: string; code: string; customerName: string; deliveryDate: string | null }>> {
+        const summaryKey = `sum:${asOf}:q:${(query || '').trim().toLowerCase()}`;
+        const cached = this.summaryCache;
+        if (cached && cached.key === summaryKey && cached.expiresAt > Date.now()) {
+            return cached.orders.filter((order) => {
+                if (!order.deliveryDate) return false;
+                const d = this.parseDateOnly(order.deliveryDate);
+                return !!d && d >= asOfDate;
+            });
+        }
 
         let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
         let rawOrders: any[];
@@ -105,68 +155,108 @@ export class PcpScheduleService {
         }
 
         const mapped = rawOrders.map((item) => this.mapSalesOrder(item));
-        const withDelivery = mapped.filter((order) => {
+        this.summaryCache = {
+            key: summaryKey,
+            expiresAt: Date.now() + PcpScheduleService.CACHE_TTL_MS,
+            orders: mapped,
+        };
+
+        return mapped.filter((order) => {
             if (!order.deliveryDate) return false;
             const d = this.parseDateOnly(order.deliveryDate);
             return !!d && d >= asOfDate;
         });
+    }
 
-        const workingRows: WorkingRow[] = [];
-        for (let i = 0; i < withDelivery.length; i += 1) {
-            const order = withDelivery[i];
-            if (i > 0) {
-                await this.sleep(PcpScheduleService.ITEM_DELAY_MS);
-            }
-
-            let items: any[] = [];
-            try {
-                items = await this.withRetry(
-                    () => this.ponttaService.getSalesOrderItems(token, order.ponttaId),
-                    `items PV ${order.code}`,
-                );
-            } catch (error) {
-                console.warn(`[PCP] Falha ao buscar items do PV ${order.code}:`, error?.message || error);
-            }
-
-            const classified = this.classifyEnvironments(items);
-            const deliveryDate = this.parseDateOnly(order.deliveryDate!)!;
-            const areas: WorkingRow['areas'] = {};
-
-            for (const key of Object.keys(AREA_OFFSETS) as PcpAreaKey[]) {
-                const envs = classified[key];
-                if (!envs.length) continue;
-                const tentative = this.adjustToTueThuFri(
-                    this.addBusinessDays(deliveryDate, AREA_OFFSETS[key]),
-                );
-                areas[key] = { tentative, environments: envs };
-            }
-
-            workingRows.push({
-                ponttaId: order.ponttaId,
-                code: order.code,
-                customerName: order.customerName,
-                deliveryDate,
-                areas,
-                unclassified: classified.unclassified,
-            });
+    /** Datas das 3 áreas sem round-trip de items (ambientes vazios). */
+    private buildWorkingRowWithoutItems(order: {
+        ponttaId: string;
+        code: string;
+        customerName: string;
+        deliveryDate: string | null;
+    }): WorkingRow {
+        const deliveryDate = this.parseDateOnly(order.deliveryDate!)!;
+        const areas: WorkingRow['areas'] = {};
+        for (const key of Object.keys(AREA_OFFSETS) as PcpAreaKey[]) {
+            areas[key] = {
+                tentative: this.adjustToTueThuFri(this.addBusinessDays(deliveryDate, AREA_OFFSETS[key])),
+                environments: [],
+            };
         }
+        return {
+            ponttaId: order.ponttaId,
+            code: order.code,
+            customerName: order.customerName,
+            deliveryDate,
+            areas,
+            unclassified: [],
+        };
+    }
 
-        const resolved = this.resolveConflicts(workingRows);
-        const calendar = this.buildCalendar(resolved);
+    private async buildWorkingRowsWithItems(
+        withDelivery: Array<{ ponttaId: string; code: string; customerName: string; deliveryDate: string | null }>,
+    ): Promise<WorkingRow[]> {
+        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+        const rows: WorkingRow[] = new Array(withDelivery.length);
+        let nextIndex = 0;
 
-        const response: PcpScheduleResponse = {
-            asOf,
-            salesOrders: resolved,
-            calendar,
+        const worker = async () => {
+            while (true) {
+                const index = nextIndex;
+                nextIndex += 1;
+                if (index >= withDelivery.length) return;
+
+                const order = withDelivery[index];
+                let items: any[] = [];
+                try {
+                    items = await this.withRetry(
+                        () => this.ponttaService.getSalesOrderItems(token, order.ponttaId),
+                        `items PV ${order.code}`,
+                    );
+                } catch (error) {
+                    if (error?.status === 401 || error?.response?.status === 401) {
+                        this.ponttaService.clearTokenCache(this.ponttaEmail);
+                        token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
+                        try {
+                            items = await this.withRetry(
+                                () => this.ponttaService.getSalesOrderItems(token, order.ponttaId),
+                                `items PV ${order.code} retry`,
+                            );
+                        } catch (retryError) {
+                            console.warn(`[PCP] Falha ao buscar items do PV ${order.code}:`, retryError?.message || retryError);
+                        }
+                    } else {
+                        console.warn(`[PCP] Falha ao buscar items do PV ${order.code}:`, error?.message || error);
+                    }
+                }
+
+                const classified = this.classifyEnvironments(items);
+                const deliveryDate = this.parseDateOnly(order.deliveryDate!)!;
+                const areas: WorkingRow['areas'] = {};
+
+                for (const key of Object.keys(AREA_OFFSETS) as PcpAreaKey[]) {
+                    const envs = classified[key];
+                    if (!envs.length) continue;
+                    areas[key] = {
+                        tentative: this.adjustToTueThuFri(this.addBusinessDays(deliveryDate, AREA_OFFSETS[key])),
+                        environments: envs,
+                    };
+                }
+
+                rows[index] = {
+                    ponttaId: order.ponttaId,
+                    code: order.code,
+                    customerName: order.customerName,
+                    deliveryDate,
+                    areas,
+                    unclassified: classified.unclassified,
+                };
+            }
         };
 
-        this.cache = {
-            key: cacheKey,
-            expiresAt: Date.now() + PcpScheduleService.CACHE_TTL_MS,
-            value: response,
-        };
-
-        return response;
+        const pool = Math.min(PcpScheduleService.ITEM_CONCURRENCY, Math.max(1, withDelivery.length));
+        await Promise.all(Array.from({ length: pool }, () => worker()));
+        return rows.filter(Boolean);
     }
 
     private async fetchSalesOrders(
@@ -181,7 +271,6 @@ export class PcpScheduleService {
             );
         }
 
-        // Janela menor + páginas espaçadas para não estourar o rate limit do Pontta.
         const start = this.addCalendarDays(this.parseDateOnly(asOf)!, -365);
         const end = this.addCalendarDays(this.parseDateOnly(asOf)!, 90);
         end.setHours(23, 59, 59, 999);
@@ -191,10 +280,6 @@ export class PcpScheduleService {
         const all: any[] = [];
 
         for (let page = 0; page < PcpScheduleService.MAX_PAGES; page += 1) {
-            if (page > 0) {
-                await this.sleep(PcpScheduleService.PAGE_DELAY_MS);
-            }
-
             const chunk = await this.withRetry(
                 () =>
                     this.ponttaService.getSalesOrdersSummaryByDateRange(

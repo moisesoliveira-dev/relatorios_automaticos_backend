@@ -236,13 +236,14 @@ export class GosacController {
     }
 
     /**
-     * GET /api/gosac/pcp/schedule?q=
-     * Agenda PCP Operacional: PVs com deliveryDate >= hoje, datas por área e resolução de conflitos.
+     * GET /api/gosac/pcp/schedule?q=&light=1
+     * light=1: só datas (rápido). Sem light: inclui ambientes (mais lento, em paralelo).
      */
     @Get('pcp/schedule')
     @Tabs('gosac-pontta/pcp-operacional')
-    async getPcpSchedule(@Query('q') q?: string) {
-        return this.pcpScheduleService.getSchedule(q);
+    async getPcpSchedule(@Query('q') q?: string, @Query('light') light?: string) {
+        const isLight = light === '1' || light === 'true';
+        return this.pcpScheduleService.getSchedule(q, isLight);
     }
 
     /**
