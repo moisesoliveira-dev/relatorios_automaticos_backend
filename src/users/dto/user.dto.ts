@@ -13,14 +13,14 @@ export class CreateUserDto {
     @MinLength(2)
     name: string;
 
+    @IsArray()
+    @ArrayMinSize(1, { message: 'Selecione ao menos uma aba' })
+    @IsString({ each: true })
+    tabs: string[];
+
     @IsOptional()
     @IsEnum(UserRole)
     role?: UserRole;
-
-    @IsOptional()
-    @IsArray()
-    @IsString({ each: true })
-    tabs?: string[];
 }
 
 export class SelfRegisterDto {

@@ -4,7 +4,7 @@ import { Repository, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { User, UserRole, UserStatus } from './entities/user.entity';
-import { CreateUserDto, UpdateUserDto, SelfRegisterDto } from './dto/user.dto';
+import { CreateUserDto, CreateMasterDto, UpdateUserDto, SelfRegisterDto } from './dto/user.dto';
 import { EmailService } from '../email/email.service';
 import { SettingsService } from '../settings/settings.service';
 import { MASTER_TABS, deriveRoleFromTabs, normalizeTabs } from './tabs.constants';
@@ -24,32 +24,47 @@ export class UsersService {
             throw new ConflictException('Email já está em uso');
         }
 
+        const normalizedTabs = normalizeTabs(createUserDto.tabs);
+        if (!normalizedTabs.length) {
+            throw new ForbiddenException('Selecione ao menos uma aba');
+        }
+
         const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+        const role = deriveRoleFromTabs(normalizedTabs);
 
         const user = this.usersRepository.create({
-            ...createUserDto,
+            email: createUserDto.email.trim().toLowerCase(),
+            name: createUserDto.name.trim(),
             password: hashedPassword,
+            tabs: normalizedTabs,
+            role,
+            status: UserStatus.ACTIVE,
+            isActive: true,
+            inviteToken: null,
+            inviteCode: null,
+            inviteExpiresAt: null,
         });
 
         return this.usersRepository.save(user);
     }
 
-    async createMaster(createUserDto: CreateUserDto): Promise<User> {
+    async createMaster(createMasterDto: CreateMasterDto): Promise<User> {
         // Verifica se já existe um master
         const masterExists = await this.hasMaster();
         if (masterExists) {
             throw new ConflictException('Já existe um usuário master no sistema');
         }
 
-        const existingUser = await this.findByEmail(createUserDto.email);
+        const existingUser = await this.findByEmail(createMasterDto.email);
         if (existingUser) {
             throw new ConflictException('Email já está em uso');
         }
 
-        const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+        const hashedPassword = await bcrypt.hash(createMasterDto.password, 10);
 
         const user = this.usersRepository.create({
-            ...createUserDto,
+            email: createMasterDto.email,
+            name: createMasterDto.name,
             password: hashedPassword,
             role: UserRole.MASTER,
             tabs: [...MASTER_TABS],
