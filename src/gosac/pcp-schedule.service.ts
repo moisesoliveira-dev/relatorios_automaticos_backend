@@ -63,6 +63,14 @@ export class PcpScheduleService {
     private readonly ponttaEmail: string;
     private readonly ponttaPassword: string;
 
+    /** Cache curto para evitar rajadas de chamadas ao Pontta no refresh. */
+    private cache: { key: string; expiresAt: number; value: PcpScheduleResponse } | null = null;
+    private static readonly CACHE_TTL_MS = 2 * 60 * 1000;
+    private static readonly PAGE_DELAY_MS = 350;
+    private static readonly ITEM_DELAY_MS = 200;
+    private static readonly MAX_PAGES = 8;
+    private static readonly PAGE_SIZE = 50;
+
     constructor(
         private readonly ponttaService: PonttaService,
         private readonly configService: ConfigService,
@@ -72,6 +80,12 @@ export class PcpScheduleService {
     }
 
     async getSchedule(query?: string): Promise<PcpScheduleResponse> {
+        const cacheKey = `q:${(query || '').trim().toLowerCase()}`;
+        const cached = this.cache;
+        if (cached && cached.key === cacheKey && cached.expiresAt > Date.now()) {
+            return cached.value;
+        }
+
         const asOf = this.toDateString(this.todayLocal());
         const asOfDate = this.parseDateOnly(asOf)!;
 
@@ -98,10 +112,18 @@ export class PcpScheduleService {
         });
 
         const workingRows: WorkingRow[] = [];
-        for (const order of withDelivery) {
+        for (let i = 0; i < withDelivery.length; i += 1) {
+            const order = withDelivery[i];
+            if (i > 0) {
+                await this.sleep(PcpScheduleService.ITEM_DELAY_MS);
+            }
+
             let items: any[] = [];
             try {
-                items = await this.ponttaService.getSalesOrderItems(token, order.ponttaId);
+                items = await this.withRetry(
+                    () => this.ponttaService.getSalesOrderItems(token, order.ponttaId),
+                    `items PV ${order.code}`,
+                );
             } catch (error) {
                 console.warn(`[PCP] Falha ao buscar items do PV ${order.code}:`, error?.message || error);
             }
@@ -132,11 +154,19 @@ export class PcpScheduleService {
         const resolved = this.resolveConflicts(workingRows);
         const calendar = this.buildCalendar(resolved);
 
-        return {
+        const response: PcpScheduleResponse = {
             asOf,
             salesOrders: resolved,
             calendar,
         };
+
+        this.cache = {
+            key: cacheKey,
+            expiresAt: Date.now() + PcpScheduleService.CACHE_TTL_MS,
+            value: response,
+        };
+
+        return response;
     }
 
     private async fetchSalesOrders(
@@ -145,34 +175,72 @@ export class PcpScheduleService {
         query?: string,
     ): Promise<any[]> {
         if (query && query.trim().length > 0) {
-            return this.ponttaService.searchSalesOrders(token, query.trim(), 0, 100);
+            return this.withRetry(
+                () => this.ponttaService.searchSalesOrders(token, query.trim(), 0, 100),
+                'searchSalesOrders',
+            );
         }
 
-        // Pontta filtra por saleDate; janela ampla para pegar PVs antigos com deliveryDate ainda vigente.
-        const start = this.addCalendarDays(this.parseDateOnly(asOf)!, -730);
-        const end = this.addCalendarDays(this.parseDateOnly(asOf)!, 365);
+        // Janela menor + páginas espaçadas para não estourar o rate limit do Pontta.
+        const start = this.addCalendarDays(this.parseDateOnly(asOf)!, -365);
+        const end = this.addCalendarDays(this.parseDateOnly(asOf)!, 90);
         end.setHours(23, 59, 59, 999);
 
         const startIso = start.toISOString();
         const endIso = end.toISOString();
-
-        const pageSize = 100;
-        const maxPages = 30;
         const all: any[] = [];
 
-        for (let page = 0; page < maxPages; page += 1) {
-            const chunk = await this.ponttaService.getSalesOrdersSummaryByDateRange(
-                token,
-                startIso,
-                endIso,
-                page,
-                pageSize,
+        for (let page = 0; page < PcpScheduleService.MAX_PAGES; page += 1) {
+            if (page > 0) {
+                await this.sleep(PcpScheduleService.PAGE_DELAY_MS);
+            }
+
+            const chunk = await this.withRetry(
+                () =>
+                    this.ponttaService.getSalesOrdersSummaryByDateRange(
+                        token,
+                        startIso,
+                        endIso,
+                        page,
+                        PcpScheduleService.PAGE_SIZE,
+                    ),
+                `sales-orders page ${page}`,
             );
+
             all.push(...chunk);
-            if (chunk.length < pageSize) break;
+            if (chunk.length < PcpScheduleService.PAGE_SIZE) break;
         }
 
         return all;
+    }
+
+    private async withRetry<T>(fn: () => Promise<T>, label: string, attempts = 4): Promise<T> {
+        let lastError: any;
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+            try {
+                return await fn();
+            } catch (error) {
+                lastError = error;
+                const status = error?.status || error?.response?.status;
+                const message = String(error?.message || error?.response?.data?.message || '');
+                const isRateLimited =
+                    status === 429 ||
+                    /too many requests/i.test(message);
+
+                if (!isRateLimited || attempt === attempts) {
+                    throw error;
+                }
+
+                const waitMs = Math.min(8000, 1000 * Math.pow(2, attempt - 1));
+                console.warn(`[PCP] Rate limit em ${label}. Tentativa ${attempt}/${attempts}, aguardando ${waitMs}ms`);
+                await this.sleep(waitMs);
+            }
+        }
+        throw lastError;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     private todayLocal(): Date {
