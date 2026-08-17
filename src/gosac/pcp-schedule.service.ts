@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PonttaService } from '../pontta/pontta.service';
 
@@ -32,10 +32,8 @@ export interface PcpCalendarDay {
 }
 
 export interface PcpScheduleResponse {
-    from: string;
-    to: string;
+    asOf: string;
     salesOrders: PcpSalesOrderSchedule[];
-    withoutDeliveryDate: PcpSalesOrderSchedule[];
     calendar: PcpCalendarDay[];
 }
 
@@ -73,49 +71,31 @@ export class PcpScheduleService {
         this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '***REMOVIDO***';
     }
 
-    async getSchedule(from: string, to: string, query?: string): Promise<PcpScheduleResponse> {
-        if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-            throw new HttpException('Parâmetros from e to são obrigatórios (YYYY-MM-DD).', HttpStatus.BAD_REQUEST);
-        }
-        if (from > to) {
-            throw new HttpException('from deve ser anterior ou igual a to.', HttpStatus.BAD_REQUEST);
-        }
+    async getSchedule(query?: string): Promise<PcpScheduleResponse> {
+        const asOf = this.toDateString(this.todayLocal());
+        const asOfDate = this.parseDateOnly(asOf)!;
 
         let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
         let rawOrders: any[];
 
         try {
-            rawOrders = await this.fetchSalesOrders(token, from, to, query);
+            rawOrders = await this.fetchSalesOrders(token, asOf, query);
         } catch (error) {
             if (error?.status === 401 || error?.response?.status === 401) {
                 this.ponttaService.clearTokenCache(this.ponttaEmail);
                 token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-                rawOrders = await this.fetchSalesOrders(token, from, to, query);
+                rawOrders = await this.fetchSalesOrders(token, asOf, query);
             } else {
                 throw error;
             }
         }
 
         const mapped = rawOrders.map((item) => this.mapSalesOrder(item));
-        const fromDate = this.parseDateOnly(from)!;
-        const toDate = this.parseDateOnly(to)!;
-
-        const withDelivery: typeof mapped = [];
-        const withoutDelivery: PcpSalesOrderSchedule[] = [];
-
-        for (const order of mapped) {
-            if (!order.deliveryDate) {
-                withoutDelivery.push({
-                    ...order,
-                    areas: {},
-                    unclassified: [],
-                });
-                continue;
-            }
+        const withDelivery = mapped.filter((order) => {
+            if (!order.deliveryDate) return false;
             const d = this.parseDateOnly(order.deliveryDate);
-            if (!d || d < fromDate || d > toDate) continue;
-            withDelivery.push(order);
-        }
+            return !!d && d >= asOfDate;
+        });
 
         const workingRows: WorkingRow[] = [];
         for (const order of withDelivery) {
@@ -153,34 +133,31 @@ export class PcpScheduleService {
         const calendar = this.buildCalendar(resolved);
 
         return {
-            from,
-            to,
+            asOf,
             salesOrders: resolved,
-            withoutDeliveryDate: withoutDelivery.sort((a, b) => a.code.localeCompare(b.code)),
             calendar,
         };
     }
 
     private async fetchSalesOrders(
         token: string,
-        from: string,
-        to: string,
+        asOf: string,
         query?: string,
     ): Promise<any[]> {
         if (query && query.trim().length > 0) {
             return this.ponttaService.searchSalesOrders(token, query.trim(), 0, 100);
         }
 
-        // Pontta filtra por saleDate; amplia a janela para capturar PVs cujo deliveryDate caia no período.
-        const expandedStart = this.addCalendarDays(this.parseDateOnly(from)!, -60);
-        const endDate = this.parseDateOnly(to)!;
-        endDate.setHours(23, 59, 59, 999);
+        // Pontta filtra por saleDate; janela ampla para pegar PVs antigos com deliveryDate ainda vigente.
+        const start = this.addCalendarDays(this.parseDateOnly(asOf)!, -730);
+        const end = this.addCalendarDays(this.parseDateOnly(asOf)!, 365);
+        end.setHours(23, 59, 59, 999);
 
-        const startIso = expandedStart.toISOString();
-        const endIso = endDate.toISOString();
+        const startIso = start.toISOString();
+        const endIso = end.toISOString();
 
         const pageSize = 100;
-        const maxPages = 20;
+        const maxPages = 30;
         const all: any[] = [];
 
         for (let page = 0; page < maxPages; page += 1) {
@@ -196,6 +173,12 @@ export class PcpScheduleService {
         }
 
         return all;
+    }
+
+    private todayLocal(): Date {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        return now;
     }
 
     private mapSalesOrder(item: any): {

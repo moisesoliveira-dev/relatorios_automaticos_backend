@@ -236,17 +236,13 @@ export class GosacController {
     }
 
     /**
-     * GET /api/gosac/pcp/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD&q=
-     * Agenda PCP Operacional: datas de entrega por área com resolução de conflitos.
+     * GET /api/gosac/pcp/schedule?q=
+     * Agenda PCP Operacional: PVs com deliveryDate >= hoje, datas por área e resolução de conflitos.
      */
     @Get('pcp/schedule')
     @Tabs('gosac-pontta/pcp-operacional')
-    async getPcpSchedule(
-        @Query('from') from?: string,
-        @Query('to') to?: string,
-        @Query('q') q?: string,
-    ) {
-        return this.pcpScheduleService.getSchedule(from || '', to || '', q);
+    async getPcpSchedule(@Query('q') q?: string) {
+        return this.pcpScheduleService.getSchedule(q);
     }
 
     /**
