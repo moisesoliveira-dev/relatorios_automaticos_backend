@@ -21,6 +21,7 @@ import { GosacService } from './gosac.service';
 import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './dto/gosac.dto';
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
+import { PcpScheduleService } from './pcp-schedule.service';
 
 @Controller('gosac')
 @UseGuards(JwtAuthGuard, TabsGuard)
@@ -29,6 +30,7 @@ export class GosacController {
         private readonly gosacService: GosacService,
         private readonly montadorPdfService: MontadorPdfService,
         private readonly googleDriveService: GoogleDriveService,
+        private readonly pcpScheduleService: PcpScheduleService,
     ) { }
 
     /**
@@ -131,7 +133,7 @@ export class GosacController {
      * Pesquisa pedidos de venda no Pontta
      */
     @Get('sales-orders/search')
-    @Tabs('gosac-pontta/grupos', 'gosac-pontta/pagamento-montador')
+    @Tabs('gosac-pontta/grupos', 'gosac-pontta/pagamento-montador', 'gosac-pontta/pcp-operacional')
     async searchSalesOrders(@Query('q') q?: string) {
         // console.log('[MontadorAPI] GET /gosac/sales-orders/search', { q });
         const results = await this.gosacService.searchSalesOrders(q);
@@ -225,12 +227,26 @@ export class GosacController {
      * Busca os ambientes (itens) de um pedido de venda
      */
     @Get('sales-orders/:id/items')
-    @Tabs('gosac-pontta/pagamento-montador')
+    @Tabs('gosac-pontta/pagamento-montador', 'gosac-pontta/pcp-operacional')
     async getSalesOrderItems(@Param('id') id: string) {
         console.log('[MontadorAPI] GET /gosac/sales-orders/:id/items', { id });
         const items = await this.gosacService.getSalesOrderItems(id);
         console.log('[MontadorAPI] sales-orders/:id/items -> sucesso', { id, total: items.length });
         return items;
+    }
+
+    /**
+     * GET /api/gosac/pcp/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD&q=
+     * Agenda PCP Operacional: datas de entrega por área com resolução de conflitos.
+     */
+    @Get('pcp/schedule')
+    @Tabs('gosac-pontta/pcp-operacional')
+    async getPcpSchedule(
+        @Query('from') from?: string,
+        @Query('to') to?: string,
+        @Query('q') q?: string,
+    ) {
+        return this.pcpScheduleService.getSchedule(from || '', to || '', q);
     }
 
     /**

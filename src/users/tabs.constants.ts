@@ -9,6 +9,7 @@ export const ALL_TAB_KEYS = [
   'gosac-pontta/rodizio',
   'gosac-pontta/rodizio-pontta',
   'gosac-pontta/pagamento-montador',
+  'gosac-pontta/pcp-operacional',
   'usuarios',
   'configuracoes',
 ] as const;

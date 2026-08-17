@@ -10,6 +10,7 @@ import { PonttaModule } from '../pontta/pontta.module';
 import { SettingsModule } from '../settings/settings.module';
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
+import { PcpScheduleService } from './pcp-schedule.service';
 
 @Module({
     imports: [
@@ -18,7 +19,7 @@ import { GoogleDriveService } from './google-drive.service';
         SettingsModule,
     ],
     controllers: [GosacController, GosacWebhookController],
-    providers: [GosacService, MontadorPdfService, GoogleDriveService],
+    providers: [GosacService, MontadorPdfService, GoogleDriveService, PcpScheduleService],
     exports: [GosacService, GoogleDriveService],
 })
 export class GosacModule { }

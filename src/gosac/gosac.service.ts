@@ -191,6 +191,7 @@ export class GosacService {
                 customerName: item.customer?.name || item.customerName || '',
                 value: item.total ?? item.value ?? 0,
                 saleDate: item.saleDate || null,
+                deliveryDate: item.deliveryDate || item.delivery_date || item.expectedDeliveryDate || null,
                 status: item.valid ? 'VALID' : (item.canceled ? 'CANCELED' : null),
             }));
         } catch (error) {
@@ -206,6 +207,7 @@ export class GosacService {
                     customerName: item.customer?.name || item.customerName || '',
                     value: item.total ?? item.value ?? 0,
                     saleDate: item.saleDate || null,
+                    deliveryDate: item.deliveryDate || item.delivery_date || item.expectedDeliveryDate || null,
                     status: item.valid ? 'VALID' : (item.canceled ? 'CANCELED' : null),
                 }));
             }
