@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppConfigService } from '../infrastructure/config/app-config.service';
@@ -32,6 +32,7 @@ export interface GosacTicket {
 
 @Injectable()
 export class GosacService {
+    private readonly logger = new Logger(GosacService.name);
     private readonly gosacBaseUrl: string;
     private readonly gosacApiKey: string;
     private readonly ponttaEmail: string;
@@ -55,7 +56,22 @@ export class GosacService {
         this.ponttaPassword = this.appConfig.ponttaCredentials.password;
 
         if (!this.gosacBaseUrl || !this.gosacApiKey) {
-            throw new Error('GOSAC_BASE_URL e GOSAC_API_KEY são obrigatórios — configure em .env.development ou .env.production');
+            this.logger.warn(
+                'GOSAC_BASE_URL ou GOSAC_API_KEY ausentes — app sobe normalmente, mas rotas GOSAC falham até configurar no Railway.',
+            );
+        }
+    }
+
+    private get isGosacConfigured(): boolean {
+        return !!this.gosacBaseUrl && !!this.gosacApiKey;
+    }
+
+    private ensureGosacConfigured(): void {
+        if (!this.isGosacConfigured) {
+            throw new HttpException(
+                'Integração GOSAC não configurada. Defina GOSAC_BASE_URL e GOSAC_API_KEY no Railway.',
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
         }
     }
 
@@ -63,6 +79,7 @@ export class GosacService {
      * Pesquisa tickets no GOSAC sem filtros locais de prefixo/isGroup.
      */
     async searchTickets(searchParam: string): Promise<GosacTicket[]> {
+        this.ensureGosacConfigured();
         try {
             const query = searchParam.trim();
             if (!query) {
@@ -274,6 +291,10 @@ export class GosacService {
      * Lê userId e queueId das configurações do banco para permitir edição pela interface.
      */
     private async updateGosacTicketQueue(ticketId: number): Promise<void> {
+        if (!this.isGosacConfigured) {
+            this.logger.warn(`GOSAC não configurado — pulando atualização de fila do ticket #${ticketId}`);
+            return;
+        }
         try {
             // Regra fixa de negócio: sempre atribuir para userId=71 e queueId=58.
             const userId = 71;
@@ -433,6 +454,7 @@ export class GosacService {
         const fileUrl = (mediaUrl || mediaPath) as string;
 
         try {
+            this.ensureGosacConfigured();
             // Baixa o arquivo do GOSAC
             console.log(`⬇️ Baixando arquivo de: ${fileUrl}`);
             const response = await axios.get(fileUrl, {
@@ -531,6 +553,7 @@ export class GosacService {
      * Lista todos os usuários do GOSAC, percorrendo todas as páginas.
      */
     async listAllUsers(): Promise<any[]> {
+        this.ensureGosacConfigured();
         const limit = 25;
         let pageNumber = 1;
         const allUsers: any[] = [];
@@ -574,6 +597,7 @@ export class GosacService {
      * Lista todas as filas (queues) do GOSAC.
      */
     async listQueues(): Promise<any[]> {
+        this.ensureGosacConfigured();
         try {
             const url = `${this.gosacBaseUrl}/api/queue`;
             const response = await axios.get(url, {
