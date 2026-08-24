@@ -6,6 +6,7 @@ import { Setting } from './entities/setting.entity';
 import { CreateSettingDto, UpdateSettingDto } from './dto/setting.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { MASTER_TABS, normalizeTabs } from '../users/tabs.constants';
+import { AppConfigService } from '../infrastructure/config/app-config.service';
 
 @Injectable()
 export class SettingsService {
@@ -30,10 +31,9 @@ export class SettingsService {
         private settingsRepository: Repository<Setting>,
         @InjectRepository(User)
         private usersRepository: Repository<User>,
+        private readonly appConfig: AppConfigService,
     ) {
-        // Usa a chave de criptografia do ambiente ou gera uma padrão
-        const encryptionKey = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production-32-chars';
-        // Garante que a chave tenha 32 bytes
+        const encryptionKey = this.appConfig.encryptionKey;
         this.ENCRYPTION_KEY = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
     }
 

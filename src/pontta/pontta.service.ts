@@ -1,5 +1,5 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { AppConfigService } from '../infrastructure/config/app-config.service';
 import axios from 'axios';
 import FormData from 'form-data';
 
@@ -39,12 +39,16 @@ export class PonttaService {
     private tokenCache: Map<string, { token: string; expiresAt: number }> = new Map();
     private readonly TOKEN_TTL_MS = 9 * 60 * 1000; // 9 minutos (margem antes do JWT expirar)
 
-    constructor(private configService: ConfigService) {
-        this.authUrl = this.configService.get<string>('PONTTA_AUTH_URL') || 'https://api.pontta.com/api/authenticate';
-        this.apiUrl = this.configService.get<string>('PONTTA_API_URL') || 'https://app.pontta.com/api';
-        this.apiKey = this.configService.get<string>('PONTTA_API_KEY') || 'your_pontta_api_key';
-        this.businessUnitId = this.configService.get<string>('PONTTA_BUSINESS_UNIT_ID') || 'd6e8a1cd-ab55-4dd2-96cd-dbab38f75f2e';
-        console.log(`[PonttaService] businessUnitId: "${this.businessUnitId}"`);
+    constructor(private readonly appConfig: AppConfigService) {
+        const pontta = this.appConfig.ponttaApi;
+        this.authUrl = pontta.authUrl;
+        this.apiUrl = pontta.apiUrl;
+        this.apiKey = pontta.apiKey ?? '';
+        this.businessUnitId = pontta.businessUnitId ?? '';
+
+        if (!this.apiKey) {
+            throw new Error('PONTTA_API_KEY é obrigatório — configure em .env.development ou .env.production');
+        }
     }
 
     async authenticate(email: string, password: string, forceRefresh = false): Promise<string> {

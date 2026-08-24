@@ -1,7 +1,7 @@
 import { Injectable, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
+import { AppConfigService } from '../infrastructure/config/app-config.service';
 import axios from 'axios';
 import { GosacGroup } from './entities/gosac-group.entity';
 import { PonttaSalesOrder } from './entities/pontta-sales-order.entity';
@@ -45,14 +45,18 @@ export class GosacService {
         @InjectRepository(GosacSalesOrderLink)
         private readonly linkRepository: Repository<GosacSalesOrderLink>,
         private readonly ponttaService: PonttaService,
-        private readonly configService: ConfigService,
+        private readonly appConfig: AppConfigService,
         private readonly settingsService: SettingsService,
     ) {
-        this.gosacBaseUrl = this.configService.get<string>('GOSAC_BASE_URL') || 'https://cmmodulados.gosac.com.br';
-        this.gosacApiKey = this.configService.get<string>('GOSAC_API_KEY') || 'your_gosac_api_key';
-        this.ponttaEmail = this.configService.get<string>('PONTTA_EMAIL') || 'seu_email_pontta@example.com';
-        this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '***REMOVIDO***';
-        console.log(`[GosacService] ponttaEmail: "${this.ponttaEmail}", ponttaPassword definido: ${!!this.ponttaPassword}`);
+        const gosac = this.appConfig.gosacApi;
+        this.gosacBaseUrl = gosac.baseUrl ?? '';
+        this.gosacApiKey = gosac.apiKey ?? '';
+        this.ponttaEmail = this.appConfig.ponttaCredentials.email;
+        this.ponttaPassword = this.appConfig.ponttaCredentials.password;
+
+        if (!this.gosacBaseUrl || !this.gosacApiKey) {
+            throw new Error('GOSAC_BASE_URL e GOSAC_API_KEY são obrigatórios — configure em .env.development ou .env.production');
+        }
     }
 
     /**

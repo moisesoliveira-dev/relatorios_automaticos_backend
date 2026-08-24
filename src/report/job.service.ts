@@ -8,7 +8,7 @@ import { ReportService } from './report.service';
 import { ReportEmail } from './entities/report.entity';
 import { PonttaService } from '../pontta/pontta.service';
 import { GoogleDriveService } from '../gosac/google-drive.service';
-import { ConfigService } from '@nestjs/config';
+import { AppConfigService } from '../infrastructure/config/app-config.service';
 import * as puppeteer from 'puppeteer';
 
 type CodeJobId = 'delivery-material-dates';
@@ -86,10 +86,10 @@ export class JobService {
         private reportService: ReportService,
         private readonly ponttaService: PonttaService,
         private readonly googleDriveService: GoogleDriveService,
-        private readonly configService: ConfigService,
+        private readonly appConfig: AppConfigService,
     ) {
-        this.ponttaEmail = this.configService.get<string>('PONTTA_EMAIL') || 'seu_email_pontta@example.com';
-        this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '***REMOVIDO***';
+        this.ponttaEmail = this.appConfig.ponttaCredentials.email;
+        this.ponttaPassword = this.appConfig.ponttaCredentials.password;
 
         for (const def of this.codeJobDefinitions) {
             this.codeJobStates.set(def.id, {

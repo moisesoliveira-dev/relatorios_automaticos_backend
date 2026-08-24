@@ -11,12 +11,14 @@ import { SettingsModule } from '../settings/settings.module';
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
 import { PcpScheduleService } from './pcp-schedule.service';
+import { PcpContextModule } from '../contexts/pcp/pcp.context.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([GosacGroup, PonttaSalesOrder, GosacSalesOrderLink]),
         PonttaModule,
         SettingsModule,
+        PcpContextModule,
     ],
     controllers: [GosacController, GosacWebhookController],
     providers: [GosacService, MontadorPdfService, GoogleDriveService, PcpScheduleService],

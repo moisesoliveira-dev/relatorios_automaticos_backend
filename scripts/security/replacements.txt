@@ -1,0 +1,11 @@
+***REMOVED***
+***REMOVIDO***==>***REMOVIDO***
+
+literal:***REMOVIDO***==>***REMOVIDO***
+literal:seu_email_pontta@example.com==>seu_email_pontta@example.com
+literal:your_pontta_api_key==>your_pontta_api_key
+literal:your_smtp_app_password==>your_smtp_app_password
+literal:seu_email_smtp@example.com==>seu_email_smtp@example.com
+literal:your_railway_db_password==>your_railway_db_password
+literal:your_gosac_api_key==>your_gosac_api_key
+literal:your_gosac_api_key==>your_gosac_api_key
