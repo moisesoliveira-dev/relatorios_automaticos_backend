@@ -27,27 +27,17 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 REPLACEMENTS="$REPO_ROOT/scripts/security/replacements.txt"
-if [[ ! -f "$REPLACEMENTS" ]]; then
-  echo "ERRO: $REPLACEMENTS não encontrado"
-  exit 1
-fi
-
-echo "Isso reescreve TODO o histórico local. Um backup será criado em ../relatorios_automaticos_backend.git-backup"
-read -r -p "Continuar? (digite SIM): " confirm
-if [[ "$confirm" != "SIM" ]]; then
-  echo "Cancelado."
-  exit 0
-fi
-
-BACKUP="../relatorios_automaticos_backend.git-backup-$(date +%Y%m%d-%H%M%S)"
-git clone --mirror . "$BACKUP"
-echo "Backup: $BACKUP"
+# Copia para /tmp — git-filter-repo altera o arquivo de substituições se estiver dentro do repo
+TMP_REPLACEMENTS="$(mktemp)"
+cp "$REPLACEMENTS" "$TMP_REPLACEMENTS"
 
 git filter-repo --force \
-  --replace-text "$REPLACEMENTS" \
+  --replace-text "$TMP_REPLACEMENTS" \
   --path-glob '.env' --invert-paths \
   --path-glob '.env.development' --invert-paths \
   --path-glob '.env.production' --invert-paths
+
+rm -f "$TMP_REPLACEMENTS"
 
 echo ""
 echo "Histórico local reescrito."

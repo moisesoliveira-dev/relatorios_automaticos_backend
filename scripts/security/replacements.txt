@@ -1,11 +1,8 @@
-***REMOVED***
-***REMOVIDO***==>***REMOVIDO***
-
-literal:***REMOVIDO***==>***REMOVIDO***
-literal:seu_email_pontta@example.com==>seu_email_pontta@example.com
-literal:your_pontta_api_key==>your_pontta_api_key
-literal:your_smtp_app_password==>your_smtp_app_password
-literal:seu_email_smtp@example.com==>seu_email_smtp@example.com
-literal:your_railway_db_password==>your_railway_db_password
-literal:your_gosac_api_key==>your_gosac_api_key
-literal:your_gosac_api_key==>your_gosac_api_key
+literal:Moises25==>***REMOVIDO***
+literal:moreira278@hotmail.com==>seu_email_pontta@example.com
+literal:lO694Es0VVqKC36lN1WvcsJbiWIyxId83h7TkNbb==>your_pontta_api_key
+literal:gipb pjae kncb yfql==>your_smtp_app_password
+literal:moiseixas123@gmail.com==>seu_email_smtp@example.com
+literal:MrWlQWXmuNCNVBnwtBbbOdMpGeRpIsYv==>your_railway_db_password
+literal:d62228a1dfacd92f850e1af9fa04ee49b958c9ea5912a77475ae18e5d7f8==>your_gosac_api_key
+literal:0ddfe6600ac270ae602f509c3bf247dd8b581fe6672dc48fcb2853d91328==>your_gosac_api_key
