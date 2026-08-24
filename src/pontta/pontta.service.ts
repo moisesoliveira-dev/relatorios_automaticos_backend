@@ -49,6 +49,48 @@ export class PonttaService {
         if (!this.apiKey) {
             throw new Error('PONTTA_API_KEY é obrigatório — configure em .env.development ou .env.production');
         }
+        if (!this.businessUnitId) {
+            console.warn('[PonttaService] PONTTA_BUSINESS_UNIT_ID ausente — algumas rotas usarão fallback sem Businessunit.');
+        }
+    }
+
+    private parseSalesOrderSummaryItems(data: unknown): any[] {
+        if (Array.isArray(data)) return data;
+        if (Array.isArray((data as any)?.content)) return (data as any).content;
+        if (Array.isArray((data as any)?.data?.content)) return (data as any).data.content;
+        if (Array.isArray((data as any)?.data)) return (data as any).data;
+        return [];
+    }
+
+    private async getSalesOrdersSummaryRequest(
+        token: string,
+        params: Record<string, string | number>,
+    ): Promise<any[]> {
+        const url = `${this.apiUrl}/sales-orders/summary`;
+        const baseHeaders = {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        };
+
+        if (this.businessUnitId) {
+            try {
+                const withBu = await axios.get(url, {
+                    headers: { ...baseHeaders, Businessunit: this.businessUnitId },
+                    params,
+                });
+                const items = this.parseSalesOrderSummaryItems(withBu.data);
+                if (items.length > 0) return items;
+            } catch (error: any) {
+                const msg = String(error?.response?.data?.message || error?.response?.data?.error || '');
+                if (!/unidade de negócio/i.test(msg)) {
+                    throw error;
+                }
+                console.warn('[PonttaService] Businessunit inválida/ausente — tentando sem header.');
+            }
+        }
+
+        const withoutBu = await axios.get(url, { headers: baseHeaders, params });
+        return this.parseSalesOrderSummaryItems(withoutBu.data);
     }
 
     async authenticate(email: string, password: string, forceRefresh = false): Promise<string> {
@@ -295,60 +337,17 @@ export class PonttaService {
         size: number = 25,
     ): Promise<any[]> {
         try {
-            const url = `${this.apiUrl}/sales-orders/summary`;
             console.log(`🔍 Buscando pedidos de venda Pontta: "${query || '(inicial)'}"`);
-            // Monta a URL manualmente para garantir que sort=saleDate,number,desc
-            // seja enviado exatamente como o app Pontta envia (sem encoding das vírgulas)
-            const params = new URLSearchParams({
+            const params: Record<string, string | number> = {
                 status: 'VALID',
-                page: String(page),
-                size: String(size),
-            });
-            if (query && query.trim().length > 0) {
-                params.set('q', query.trim());
-            }
-
-            const requestUrl = `${url}?${params.toString()}&sort=saleDate,number,desc`;
-
-            const parseItems = (data: any): any[] => {
-                // API pode retornar array, { content: [] } ou payload aninhado
-                if (Array.isArray(data)) return data;
-                if (Array.isArray(data?.content)) return data.content;
-                if (Array.isArray(data?.data?.content)) return data.data.content;
-                if (Array.isArray(data?.data)) return data.data;
-                return [];
+                page,
+                size,
+                sort: 'saleDate,number,desc',
             };
-
-            // 1) Tenta com Businessunit (comportamento atual)
-            const responseWithBu = await axios.get(requestUrl, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    Businessunit: this.businessUnitId,
-                },
-            });
-
-            console.log('[PonttaRaw] sales-orders/summary com Businessunit -> response.data:', JSON.stringify(responseWithBu.data));
-
-            const itemsWithBu = parseItems(responseWithBu.data);
-            console.log(`✅ Resposta pedidos de venda c/ Businessunit: ${itemsWithBu.length} item(ns)`);
-            if (itemsWithBu.length > 0 || !!query) {
-                return itemsWithBu;
+            if (query && query.trim().length > 0) {
+                params.q = query.trim();
             }
-
-            // 2) Fallback sem Businessunit para alinhar com rota manual testada pelo usuário
-            const responseWithoutBu = await axios.get(requestUrl, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            console.log('[PonttaRaw] sales-orders/summary sem Businessunit -> response.data:', JSON.stringify(responseWithoutBu.data));
-
-            const itemsWithoutBu = parseItems(responseWithoutBu.data);
-            console.log(`✅ Resposta pedidos de venda sem Businessunit: ${itemsWithoutBu.length} item(ns)`);
-            return itemsWithoutBu;
+            return await this.getSalesOrdersSummaryRequest(token, params);
         } catch (error) {
             const ponttaError = error.response?.data;
             const ponttaStatus = error.response?.status;
@@ -638,28 +637,14 @@ export class PonttaService {
         size: number = 100,
     ): Promise<any[]> {
         try {
-            const url = `${this.apiUrl}/sales-orders/summary`;
-            const response = await axios.get(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    Businessunit: this.businessUnitId,
-                },
-                params: {
-                    start: startIso,
-                    end: endIso,
-                    status: 'VALID',
-                    page,
-                    size,
-                    sort: 'saleDate,number,desc',
-                },
+            return await this.getSalesOrdersSummaryRequest(token, {
+                start: startIso,
+                end: endIso,
+                status: 'VALID',
+                page,
+                size,
+                sort: 'saleDate,number,desc',
             });
-
-            const data = response.data;
-            if (Array.isArray(data)) return data;
-            if (Array.isArray(data?.content)) return data.content;
-            if (Array.isArray(data?.data?.content)) return data.data.content;
-            return [];
         } catch (error) {
             const status = error?.response?.status;
             const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
