@@ -136,15 +136,33 @@ export class PonttaSalesOrderAdapter implements SalesOrderPort {
       code: String(item.code || item.number || ''),
       customerName: item.customer?.name || item.customerName || '',
       deliveryDate: normalizeDateString(rawDelivery),
+      approvalDate: null,
     };
   }
 
-  private filterByDeliveryDate(orders: SalesOrderSummary[], asOfDate: Date): SalesOrderSummary[] {
-    return orders.filter((order) => {
-      if (!order.deliveryDate) return false;
-      const d = this.parseDateOnly(order.deliveryDate);
-      return !!d && d >= asOfDate;
-    });
+  async fetchOrderTasks(ponttaId: string): Promise<Array<Record<string, unknown>>> {
+    const { email, password } = this.appConfig.ponttaCredentials;
+    let token = await this.ponttaService.authenticate(email, password);
+    try {
+      return await this.withRetry(
+        () => this.ponttaService.getSalesOrderTasksSummary(token, ponttaId),
+        `tasks ${ponttaId}`,
+      );
+    } catch (error: any) {
+      if (error?.status === 401 || error?.response?.status === 401) {
+        this.ponttaService.clearTokenCache(email);
+        token = await this.ponttaService.authenticate(email, password);
+        return await this.withRetry(
+          () => this.ponttaService.getSalesOrderTasksSummary(token, ponttaId),
+          `tasks ${ponttaId} retry`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private filterByDeliveryDate(orders: SalesOrderSummary[], _asOfDate: Date): SalesOrderSummary[] {
+    return orders.filter((order) => !!order.ponttaId && !!order.code);
   }
 
   private async withRetry<T>(fn: () => Promise<T>, label: string, attempts = 4): Promise<T> {

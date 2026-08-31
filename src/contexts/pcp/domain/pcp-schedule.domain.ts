@@ -1,5 +1,4 @@
 import {
-  AREA_OFFSETS,
   PcpAreaKey,
   PcpAreaSchedule,
   PcpCalendarDay,
@@ -65,16 +64,12 @@ export function todayLocal(): Date {
 
 /** Domain service: resolve conflitos de entrega por área entre pedidos. */
 export class PcpConflictResolver {
-  resolve(rows: WorkingRow[]): PcpSalesOrderSchedule[] {
-    const occupied: Record<PcpAreaKey, Set<string>> = {
-      molhada: new Set(),
-      intima: new Set(),
-      social: new Set(),
-    };
+  resolve(rows: WorkingRow[], areaKeys: PcpAreaKey[]): PcpSalesOrderSchedule[] {
+    const occupied = Object.fromEntries(areaKeys.map((k) => [k, new Set<string>()])) as Record<PcpAreaKey, Set<string>>;
 
     const assignedDates = new Map<string, Partial<Record<PcpAreaKey, { date: Date; conflictAdjusted: boolean; environments: string[] }>>>();
 
-    for (const area of Object.keys(AREA_OFFSETS) as PcpAreaKey[]) {
+    for (const area of areaKeys) {
       const candidates = rows
         .filter((r) => r.areas[area])
         .map((r) => ({
@@ -85,7 +80,7 @@ export class PcpConflictResolver {
         .sort((a, b) => {
           const t = a.tentative.getTime() - b.tentative.getTime();
           if (t !== 0) return t;
-          const d = a.row.deliveryDate.getTime() - b.row.deliveryDate.getTime();
+          const d = a.row.baseDate.getTime() - b.row.baseDate.getTime();
           if (d !== 0) return d;
           return a.row.code.localeCompare(b.row.code);
         });
@@ -128,20 +123,21 @@ export class PcpConflictResolver {
           ponttaId: row.ponttaId,
           code: row.code,
           customerName: row.customerName,
-          deliveryDate: toDateString(row.deliveryDate),
+          approvalDate: toDateString(row.baseDate),
+          deliveryDate: null,
           areas,
           unclassified: row.unclassified,
         };
       })
       .sort((a, b) => {
-        const da = a.deliveryDate || '';
-        const db = b.deliveryDate || '';
+        const da = a.approvalDate || '';
+        const db = b.approvalDate || '';
         if (da !== db) return da.localeCompare(db);
         return a.code.localeCompare(b.code);
       });
   }
 
-  buildCalendar(orders: PcpSalesOrderSchedule[]): PcpCalendarDay[] {
+  buildCalendar(orders: PcpSalesOrderSchedule[], areaKeys: PcpAreaKey[]): PcpCalendarDay[] {
     const byDate = new Map<string, PcpCalendarEntry[]>();
 
     for (const order of orders) {
@@ -164,9 +160,7 @@ export class PcpConflictResolver {
       .map(([date, entries]) => ({
         date,
         entries: entries.sort((a, b) => {
-          const areaOrder =
-            (['molhada', 'intima', 'social'] as PcpAreaKey[]).indexOf(a.area) -
-            (['molhada', 'intima', 'social'] as PcpAreaKey[]).indexOf(b.area);
+          const areaOrder = areaKeys.indexOf(a.area) - areaKeys.indexOf(b.area);
           if (areaOrder !== 0) return areaOrder;
           return a.salesOrderCode.localeCompare(b.salesOrderCode);
         }),

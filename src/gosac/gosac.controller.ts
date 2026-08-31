@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Put,
     Patch,
     Delete,
     Query,
@@ -22,6 +23,7 @@ import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './d
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
 import { PcpScheduleService } from './pcp-schedule.service';
+import type { PcpAreaConfig } from '../contexts/pcp/domain/pcp-area-config';
 
 @Controller('gosac')
 @UseGuards(JwtAuthGuard, TabsGuard)
@@ -244,6 +246,20 @@ export class GosacController {
     async getPcpSchedule(@Query('q') q?: string, @Query('light') light?: string) {
         const isLight = light === '1' || light === 'true';
         return this.pcpScheduleService.getSchedule(q, isLight);
+    }
+
+    /** GET /api/gosac/pcp/config — dias úteis e cores por área (dinâmico). */
+    @Get('pcp/config')
+    @Tabs('gosac-pontta/pcp-operacional')
+    async getPcpConfig() {
+        return this.pcpScheduleService.getConfig();
+    }
+
+    /** PUT /api/gosac/pcp/config — atualiza dias úteis e cores por área. */
+    @Put('pcp/config')
+    @Tabs('gosac-pontta/pcp-operacional')
+    async updatePcpConfig(@Body() body: PcpAreaConfig) {
+        return this.pcpScheduleService.saveConfig(body);
     }
 
     /**
