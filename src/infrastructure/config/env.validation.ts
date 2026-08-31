@@ -27,6 +27,12 @@ export interface EnvConfig {
   SMTP_USER?: string;
   SMTP_PASS?: string;
   SMTP_FROM?: string;
+  JOBS_ENABLED?: string;
+  TASK_DIAS_CHECAGEM_MEDIDA?: string;
+  TASK_DIAS_REVISAO_PROJETO?: string;
+  TASK_DIAS_PROJETO_EXECUTIVO?: string;
+  TASK_DIAS_APROVACAO_EXECUTIVO?: string;
+  TASK_DIAS_ENVIO_CLIENTE?: string;
 }
 
 function readString(config: Record<string, unknown>, key: string, fallback?: string): string | undefined {
@@ -110,5 +116,11 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     SMTP_USER: readString(config, 'SMTP_USER'),
     SMTP_PASS: readString(config, 'SMTP_PASS'),
     SMTP_FROM: readString(config, 'SMTP_FROM'),
+    JOBS_ENABLED: readString(config, 'JOBS_ENABLED'),
+    TASK_DIAS_CHECAGEM_MEDIDA: readString(config, 'TASK_DIAS_CHECAGEM_MEDIDA'),
+    TASK_DIAS_REVISAO_PROJETO: readString(config, 'TASK_DIAS_REVISAO_PROJETO'),
+    TASK_DIAS_PROJETO_EXECUTIVO: readString(config, 'TASK_DIAS_PROJETO_EXECUTIVO'),
+    TASK_DIAS_APROVACAO_EXECUTIVO: readString(config, 'TASK_DIAS_APROVACAO_EXECUTIVO'),
+    TASK_DIAS_ENVIO_CLIENTE: readString(config, 'TASK_DIAS_ENVIO_CLIENTE'),
   };
 }

@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TabsGuard } from '../auth/guards/tabs.guard';
 import { Tabs } from '../auth/decorators/tabs.decorator';
 import { JobService } from './job.service';
-import { CreateJobDto, RunCodeJobNowDto, UpdateJobDto } from './dto/job.dto';
+import { CreateJobDto, RunCodeJobNowDto, UpdateCodeJobScheduleDto, UpdateJobDto } from './dto/job.dto';
 
 @Controller('jobs')
 @UseGuards(JwtAuthGuard, TabsGuard)
@@ -14,6 +14,26 @@ export class JobController {
     @Get('code')
     getCodeJobs() {
         return this.jobService.getCodeJobs();
+    }
+
+    @Get('code/auto-tasks/processed-orders')
+    listAutoTasksProcessedOrders(
+        @Query('q') q?: string,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+    ) {
+        const parsedPage = Number(page || '1');
+        const parsedLimit = Number(limit || '50');
+        return this.jobService.listAutoTasksProcessedOrders(
+            q,
+            Number.isFinite(parsedPage) ? parsedPage : 1,
+            Number.isFinite(parsedLimit) ? parsedLimit : 50,
+        );
+    }
+
+    @Delete('code/auto-tasks/processed-orders/:code')
+    deleteAutoTasksProcessedOrder(@Param('code') code: string) {
+        return this.jobService.deleteAutoTasksProcessedOrder(code);
     }
 
     @Get('code/:id/logs')
@@ -46,6 +66,14 @@ export class JobController {
         @Body() runCodeJobNowDto: RunCodeJobNowDto,
     ) {
         return this.jobService.runCodeJobNow(id, runCodeJobNowDto);
+    }
+
+    @Put('code/:id/schedule')
+    updateCodeJobSchedule(
+        @Param('id') id: string,
+        @Body() body: UpdateCodeJobScheduleDto,
+    ) {
+        return this.jobService.updateCodeJobSchedule(id, body.runTimesManaus);
     }
 
     @Post()

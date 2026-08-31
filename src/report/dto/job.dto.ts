@@ -1,4 +1,17 @@
-import { IsString, IsEnum, IsBoolean, IsOptional, IsInt, Min, Max, Matches } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsBoolean,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  Matches,
+  IsArray,
+  ValidateNested,
+  ArrayMinSize,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateJobDto {
     @IsString()
@@ -100,4 +113,24 @@ export class RunCodeJobNowDto {
     @IsString()
     @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'salesOrderDate must be in YYYY-MM-DD format' })
     salesOrderDate?: string;
+}
+
+export class CodeJobRunTimeDto {
+    @IsInt()
+    @Min(0)
+    @Max(23)
+    hour: number;
+
+    @IsInt()
+    @Min(0)
+    @Max(59)
+    minute: number;
+}
+
+export class UpdateCodeJobScheduleDto {
+    @IsArray()
+    @ArrayMinSize(1)
+    @ValidateNested({ each: true })
+    @Type(() => CodeJobRunTimeDto)
+    runTimesManaus: CodeJobRunTimeDto[];
 }

@@ -93,4 +93,24 @@ export class AppConfigService {
       database: this.env.DB_DATABASE,
     };
   }
+
+  get jobsEnabled(): boolean {
+    return this.env.JOBS_ENABLED !== 'false';
+  }
+
+  get autoTasks(): {
+    diasChecagemMedida: number;
+    diasRevisaoProjeto: number;
+    diasProjetoExecutivo: number;
+    diasAprovacaoExecutivo: number;
+    diasEnvioCliente: number;
+  } {
+    return {
+      diasChecagemMedida: Number(this.env.TASK_DIAS_CHECAGEM_MEDIDA || 2),
+      diasRevisaoProjeto: Number(this.env.TASK_DIAS_REVISAO_PROJETO || 2),
+      diasProjetoExecutivo: Number(this.env.TASK_DIAS_PROJETO_EXECUTIVO || 2),
+      diasAprovacaoExecutivo: Number(this.env.TASK_DIAS_APROVACAO_EXECUTIVO || 2),
+      diasEnvioCliente: Number(this.env.TASK_DIAS_ENVIO_CLIENTE || 2),
+    };
+  }
 }

@@ -15,6 +15,7 @@ import { DashboardMetric, SystemLog } from './entities/dashboard.entity';
 import { ScheduledJob } from './entities/job.entity';
 import { GosacModule } from '../gosac/gosac.module';
 import { SettingsModule } from '../settings/settings.module';
+import { AutoTasksModule } from '../auto-tasks/auto-tasks.module';
 
 @Module({
     imports: [
@@ -32,6 +33,7 @@ import { SettingsModule } from '../settings/settings.module';
         EmailModule,
         GosacModule,
         SettingsModule,
+        AutoTasksModule,
     ],
     controllers: [ReportController, DashboardController, JobController],
     providers: [ReportService, DashboardService, JobService],

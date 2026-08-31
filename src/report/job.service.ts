@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -9,16 +9,24 @@ import { ReportEmail } from './entities/report.entity';
 import { PonttaService } from '../pontta/pontta.service';
 import { GoogleDriveService } from '../gosac/google-drive.service';
 import { AppConfigService } from '../infrastructure/config/app-config.service';
+import { AutoTasksService } from '../auto-tasks/auto-tasks.service';
+import { SettingsService } from '../settings/settings.service';
 import * as puppeteer from 'puppeteer';
 
-type CodeJobId = 'delivery-material-dates';
+type CodeJobId = 'delivery-material-dates' | 'auto-tasks';
+
+export interface CodeJobRunTime {
+    hour: number;
+    minute: number;
+}
 
 interface CodeJobDefinition {
     id: CodeJobId;
     name: string;
     description: string;
     scheduleLabel: string;
-    runTimesManaus: Array<{ hour: number; minute: number }>;
+    runTimesManaus: CodeJobRunTime[];
+    scheduleEditable: boolean;
 }
 
 interface CodeJobState {
@@ -56,7 +64,7 @@ interface DeliveryScheduleRow {
 }
 
 @Injectable()
-export class JobService {
+export class JobService implements OnModuleInit {
     private readonly logger = new Logger(JobService.name);
     private readonly MANAUS_UTC_OFFSET_HOURS = -4;
     private readonly ponttaEmail: string;
@@ -71,6 +79,19 @@ export class JobService {
             runTimesManaus: [
                 { hour: 0, minute: 0 },
             ],
+            scheduleEditable: true,
+        },
+        {
+            id: 'auto-tasks',
+            name: 'Criar tarefas automáticas',
+            description: 'Busca pedidos de venda do dia, cria tasks por ambiente (checagem, revisão, projeto executivo, envio e aprovação) e atualiza o rodízio.',
+            scheduleLabel: 'Diário às 11:00, 15:00 e 23:59 (Manaus)',
+            runTimesManaus: [
+                { hour: 11, minute: 0 },
+                { hour: 15, minute: 0 },
+                { hour: 23, minute: 59 },
+            ],
+            scheduleEditable: true,
         },
     ];
 
@@ -87,6 +108,8 @@ export class JobService {
         private readonly ponttaService: PonttaService,
         private readonly googleDriveService: GoogleDriveService,
         private readonly appConfig: AppConfigService,
+        private readonly autoTasksService: AutoTasksService,
+        private readonly settingsService: SettingsService,
     ) {
         this.ponttaEmail = this.appConfig.ponttaCredentials.email;
         this.ponttaPassword = this.appConfig.ponttaCredentials.password;
@@ -105,6 +128,17 @@ export class JobService {
         }
     }
 
+    async onModuleInit() {
+        await this.loadPersistedSchedules();
+
+        if (this.appConfig.jobsEnabled) {
+            this.startCodeJob('auto-tasks');
+            this.logger.log('[CodeJob:auto-tasks] Auto-iniciado (JOBS_ENABLED=true)');
+        } else {
+            this.logger.warn('[CodeJob:auto-tasks] Não auto-iniciado (JOBS_ENABLED=false) — ative pela tela Jobs');
+        }
+    }
+
     // =========================
     // Jobs definidos em código
     // =========================
@@ -116,7 +150,9 @@ export class JobService {
                 id: def.id,
                 name: def.name,
                 description: def.description,
-                scheduleLabel: def.scheduleLabel,
+                scheduleLabel: this.buildScheduleLabel(def.runTimesManaus),
+                runTimesManaus: def.runTimesManaus,
+                scheduleEditable: def.scheduleEditable,
                 isActive: state.isActive,
                 isRunning: state.isRunning,
                 lastStatus: state.lastStatus,
@@ -171,6 +207,57 @@ export class JobService {
         return this.getCodeJobs().find((j) => j.id === normalizedJobId);
     }
 
+    async updateCodeJobSchedule(jobId: string, runTimesManaus: CodeJobRunTime[]) {
+        const normalizedJobId = this.assertCodeJob(jobId);
+        const def = this.codeJobDefinitions.find((d) => d.id === normalizedJobId)!;
+
+        if (!def.scheduleEditable) {
+            throw new HttpException('Este job não permite editar o horário.', HttpStatus.BAD_REQUEST);
+        }
+
+        const normalized = this.normalizeRunTimes(runTimesManaus);
+        def.runTimesManaus = normalized;
+        def.scheduleLabel = this.buildScheduleLabel(normalized);
+
+        await this.settingsService.upsert(
+            this.scheduleSettingKey(normalizedJobId),
+            JSON.stringify(normalized),
+            'jobs',
+            `Horários (Manaus) do job ${normalizedJobId}`,
+        );
+
+        const state = this.codeJobStates.get(normalizedJobId)!;
+        if (state.isActive) {
+            state.nextRunAt = this.calculateNextCodeJobRun(normalizedJobId).toISOString();
+        }
+
+        this.pushCodeJobLog(normalizedJobId, 'info', 'Horários atualizados.', {
+            runTimesManaus: normalized,
+            nextRunAt: state.nextRunAt,
+        });
+
+        return this.getCodeJobs().find((j) => j.id === normalizedJobId);
+    }
+
+    listAutoTasksProcessedOrders(q?: string, page = 1, limit = 50) {
+        const safePage = Math.max(1, page);
+        const safeLimit = Math.max(1, Math.min(limit, 200));
+        const offset = (safePage - 1) * safeLimit;
+        return this.autoTasksService.listProcessedOrders({ q, limit: safeLimit, offset }).then((result) => ({
+            ...result,
+            page: safePage,
+            limit: safeLimit,
+        }));
+    }
+
+    async deleteAutoTasksProcessedOrder(code: string) {
+        const removed = await this.autoTasksService.removeProcessedOrder(code);
+        if (!removed) {
+            throw new NotFoundException(`Pedido processado "${code}" não encontrado`);
+        }
+        return { removed: true, code };
+    }
+
     @Cron(CronExpression.EVERY_MINUTE)
     async checkAndExecuteCodeJobs() {
         const now = new Date();
@@ -202,6 +289,8 @@ export class JobService {
 
             if (jobId === 'delivery-material-dates') {
                 summary = await this.executeDeliveryMaterialDatesJob(jobId, options?.salesOrderDate);
+            } else if (jobId === 'auto-tasks') {
+                summary = await this.executeAutoTasksJob(jobId);
             }
 
             state.lastStatus = 'success';
@@ -219,6 +308,12 @@ export class JobService {
                 state.nextRunAt = this.calculateNextCodeJobRun(jobId).toISOString();
             }
         }
+    }
+
+    private async executeAutoTasksJob(jobId: CodeJobId): Promise<string> {
+        return this.autoTasksService.execute((level, message, data) => {
+            this.pushCodeJobLog(jobId, level, message, data);
+        });
     }
 
     private async executeDeliveryMaterialDatesJob(
@@ -722,6 +817,63 @@ export class JobService {
             endIso: endUtc.toISOString(),
             displayDate,
         };
+    }
+
+    private async loadPersistedSchedules() {
+        for (const def of this.codeJobDefinitions) {
+            if (!def.scheduleEditable) continue;
+            try {
+                const raw = await this.settingsService.findByKey(this.scheduleSettingKey(def.id));
+                if (!raw) continue;
+                const parsed = JSON.parse(raw);
+                const normalized = this.normalizeRunTimes(parsed);
+                def.runTimesManaus = normalized;
+                def.scheduleLabel = this.buildScheduleLabel(normalized);
+            } catch (error) {
+                this.logger.warn(
+                    `[CodeJob:${def.id}] Não foi possível carregar horário persistido: ${(error as Error).message}`,
+                );
+            }
+        }
+    }
+
+    private scheduleSettingKey(jobId: CodeJobId): string {
+        return `CODE_JOB_SCHEDULE_${jobId}`;
+    }
+
+    private normalizeRunTimes(runTimes: unknown): CodeJobRunTime[] {
+        if (!Array.isArray(runTimes) || runTimes.length === 0) {
+            throw new HttpException('Informe ao menos um horário.', HttpStatus.BAD_REQUEST);
+        }
+
+        const normalized = runTimes.map((item) => {
+            const hour = Number((item as any)?.hour);
+            const minute = Number((item as any)?.minute);
+            if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+                throw new HttpException('Hora inválida. Use 0–23.', HttpStatus.BAD_REQUEST);
+            }
+            if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+                throw new HttpException('Minuto inválido. Use 0–59.', HttpStatus.BAD_REQUEST);
+            }
+            return { hour, minute };
+        });
+
+        const unique = new Map<string, CodeJobRunTime>();
+        for (const time of normalized) {
+            unique.set(`${time.hour}:${time.minute}`, time);
+        }
+
+        return [...unique.values()].sort((a, b) => {
+            if (a.hour !== b.hour) return a.hour - b.hour;
+            return a.minute - b.minute;
+        });
+    }
+
+    private buildScheduleLabel(runTimes: CodeJobRunTime[]): string {
+        const times = runTimes
+            .map((t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`)
+            .join(', ');
+        return `Diário às ${times} (Manaus)`;
     }
 
     private calculateNextCodeJobRun(jobId: CodeJobId): Date {
