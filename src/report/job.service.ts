@@ -239,14 +239,16 @@ export class JobService implements OnModuleInit {
         return this.getCodeJobs().find((j) => j.id === normalizedJobId);
     }
 
-    listAutoTasksProcessedOrders(q?: string, page = 1, limit = 50) {
+    listAutoTasksProcessedOrders(q?: string, page = 1, limit = 50, todayOnly = false) {
         const safePage = Math.max(1, page);
         const safeLimit = Math.max(1, Math.min(limit, 200));
         const offset = (safePage - 1) * safeLimit;
-        return this.autoTasksService.listProcessedOrders({ q, limit: safeLimit, offset }).then((result) => ({
+        return this.autoTasksService.listProcessedOrders({ q, limit: safeLimit, offset, todayOnly }).then((result) => ({
             ...result,
             page: safePage,
             limit: safeLimit,
+            totalPages: Math.max(1, Math.ceil(result.total / safeLimit)),
+            todayOnly,
         }));
     }
 

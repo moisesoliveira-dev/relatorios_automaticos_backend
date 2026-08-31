@@ -102,6 +102,7 @@ export class AutoTasksDatabaseService {
     q?: string;
     limit?: number;
     offset?: number;
+    todayOnly?: boolean;
   }): Promise<{
     items: Array<{ id: number; salesOrderId: string; code: string; createdAt: string }>;
     total: number;
@@ -109,17 +110,27 @@ export class AutoTasksDatabaseService {
     const limit = Math.max(1, Math.min(options?.limit ?? 50, 200));
     const offset = Math.max(0, options?.offset ?? 0);
     const q = (options?.q || '').trim();
+    const todayOnly = options?.todayOnly === true;
 
     const client = await this.getPool().connect();
     try {
       await this.criarTabelaSeNaoExistir();
 
       const params: Array<string | number> = [];
-      let where = '';
+      const conditions: string[] = [];
+
       if (q) {
         params.push(`%${q}%`);
-        where = `WHERE code ILIKE $1 OR salesorderid ILIKE $1`;
+        conditions.push(`(code ILIKE $${params.length} OR salesorderid ILIKE $${params.length})`);
       }
+
+      if (todayOnly) {
+        conditions.push(
+          `(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = (NOW() AT TIME ZONE 'America/Manaus')::date`,
+        );
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const countResult = await client.query(
         `SELECT COUNT(*)::int AS total FROM tb_pontta_sales_order ${where}`,

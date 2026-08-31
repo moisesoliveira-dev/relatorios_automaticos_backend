@@ -21,13 +21,16 @@ export class JobController {
         @Query('q') q?: string,
         @Query('page') page?: string,
         @Query('limit') limit?: string,
+        @Query('today') today?: string,
     ) {
         const parsedPage = Number(page || '1');
-        const parsedLimit = Number(limit || '50');
+        const parsedLimit = Number(limit || '25');
+        const todayOnly = today === '1' || today === 'true';
         return this.jobService.listAutoTasksProcessedOrders(
             q,
             Number.isFinite(parsedPage) ? parsedPage : 1,
-            Number.isFinite(parsedLimit) ? parsedLimit : 50,
+            Number.isFinite(parsedLimit) ? parsedLimit : 25,
+            todayOnly,
         );
     }
 

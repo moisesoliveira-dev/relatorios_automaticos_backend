@@ -45,7 +45,7 @@ export class AutoTasksService {
     private readonly database: AutoTasksDatabaseService,
   ) {}
 
-  listProcessedOrders(options?: { q?: string; limit?: number; offset?: number }) {
+  listProcessedOrders(options?: { q?: string; limit?: number; offset?: number; todayOnly?: boolean }) {
     return this.database.listarOrdensProcessadas(options);
   }
 
