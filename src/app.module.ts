@@ -22,6 +22,7 @@ import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
 import { Rotation } from './rotation/entities/rotation.entity';
 import { PonttaRotation } from './rotation/entities/pontta-rotation.entity';
+import { AutoTaskProcessedOrder } from './auto-tasks/entities/auto-task-processed-order.entity';
 
 function parseDatabaseUrl(databaseUrl: string) {
   const parsed = new URL(databaseUrl);
@@ -50,6 +51,7 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
       GosacGroup,
       PonttaSalesOrder,
       GosacSalesOrderLink,
+      AutoTaskProcessedOrder,
     ],
     synchronize: !appConfig.isProduction,
     logging: appConfig.isDevelopment,

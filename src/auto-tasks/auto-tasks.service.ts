@@ -3,10 +3,12 @@ import axios from 'axios';
 import { PonttaService } from '../pontta/pontta.service';
 import { AppConfigService } from '../infrastructure/config/app-config.service';
 import { AutoTasksDatabaseService, Projetista } from './auto-tasks-database.service';
+import { AutoTasksProcessedOrderService } from './auto-tasks-processed-order.service';
 import {
   adicionarDiasUteis,
   calcularDataAprovacaoExecutivo,
   calcularDataChecagemMedida,
+  isDataVendaHojeOuFutura,
   isDiaValidoChecagem,
   obterDatasConsulta,
 } from './utils/date.utils';
@@ -43,14 +45,15 @@ export class AutoTasksService {
     private readonly ponttaService: PonttaService,
     private readonly appConfig: AppConfigService,
     private readonly database: AutoTasksDatabaseService,
+    private readonly processedOrders: AutoTasksProcessedOrderService,
   ) {}
 
   listProcessedOrders(options?: { q?: string; limit?: number; offset?: number; todayOnly?: boolean }) {
-    return this.database.listarOrdensProcessadas(options);
+    return this.processedOrders.listar(options);
   }
 
   async removeProcessedOrder(code: string): Promise<boolean> {
-    return this.database.removerOrdemProcessada(code);
+    return this.processedOrders.remover(code);
   }
 
   async execute(log?: AutoTasksLogFn): Promise<string> {
@@ -61,7 +64,7 @@ export class AutoTasksService {
       else this.logger.log(message + extra);
     });
 
-    pushLog('info', 'Testando conexão com banco de tarefas automáticas...');
+    pushLog('info', 'Testando conexão com banco do rodízio...');
     await this.database.testarConexaoBanco();
     await this.database.inicializarTabelas();
 
@@ -105,17 +108,28 @@ export class AutoTasksService {
     const response = await axios.get(url, { headers, params: { start, end } });
     const ordensCompletas: SalesOrderSummary[] = response.data || [];
     const ordensNovas: SalesOrderSummary[] = [];
+    let ignoradasPassado = 0;
+    let ignoradasJaProcessadas = 0;
 
     for (const ordem of ordensCompletas) {
-      const jaExiste = await this.database.verificarOrdemExiste(ordem.code);
+      if (!isDataVendaHojeOuFutura(ordem.saleDate)) {
+        ignoradasPassado += 1;
+        continue;
+      }
+
+      const jaExiste = await this.processedOrders.existe(ordem.code);
       if (!jaExiste) {
         ordensNovas.push(ordem);
+      } else {
+        ignoradasJaProcessadas += 1;
       }
     }
 
     log('info', `Ordens: ${ordensCompletas.length} total, ${ordensNovas.length} novas`, {
       start,
       end,
+      ignoradasPassado,
+      ignoradasJaProcessadas,
     });
 
     return ordensNovas;
@@ -225,6 +239,11 @@ export class AutoTasksService {
     const diasAprovacao = this.appConfig.autoTasks.diasAprovacaoExecutivo;
 
     for (const ordem of detalhesOrdens) {
+      if (!isDataVendaHojeOuFutura(ordem.saleDate)) {
+        log('warning', `Ordem ${ordem.code} ignorada — venda anterior a hoje`, { saleDate: ordem.saleDate });
+        continue;
+      }
+
       const ambientes: string[] = [];
       if (ordem.items && Array.isArray(ordem.items)) {
         for (const item of ordem.items) {
@@ -337,8 +356,8 @@ export class AutoTasksService {
       }
 
       try {
-        await this.database.salvarOrdemNoBanco(ordem.id, ordem.code);
-        log('info', `Ordem ${ordem.code} salva no banco após criação das tasks`);
+        await this.processedOrders.registrar(ordem.id, ordem.code, ordem.saleDate);
+        log('info', `Ordem ${ordem.code} registrada como processada`);
       } catch (error) {
         log('warning', `Erro ao salvar ordem ${ordem.code} no banco`, {
           message: (error as Error).message,

@@ -154,6 +154,30 @@ export function obterDatasConsulta(): { start: string; end: string } {
   return { start: dataString, end: dataString };
 }
 
+export function obterDataHojeManaus(): string {
+  const hoje = new Date();
+  const dataManaus = new Date(hoje.toLocaleString('en-US', { timeZone: 'America/Manaus' }));
+  const ano = dataManaus.getFullYear();
+  const mes = String(dataManaus.getMonth() + 1).padStart(2, '0');
+  const dia = String(dataManaus.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+export function isDataVendaHojeOuFutura(saleDate: string | Date): boolean {
+  const hoje = obterDataHojeManaus();
+  const parsed = new Date(saleDate);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const dataVenda = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Manaus',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(parsed);
+
+  return dataVenda >= hoje;
+}
+
 export function calcularProximoDiaValidoChecagem(dataAtual: Date): Date {
   const proximoDia = new Date(dataAtual);
   proximoDia.setDate(proximoDia.getDate() + 1);
