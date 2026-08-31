@@ -62,6 +62,21 @@ export function todayLocal(): Date {
   return now;
 }
 
+/** Ordena códigos de PV (ex.: PV-CM-646) pelo número do pedido. */
+export function compareSalesOrderCodes(a: string, b: string): number {
+  const na = parseSalesOrderCodeNumber(a);
+  const nb = parseSalesOrderCodeNumber(b);
+  if (na !== null && nb !== null && na !== nb) return na - nb;
+  return a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' });
+}
+
+function parseSalesOrderCodeNumber(code: string): number | null {
+  const match = String(code || '').trim().match(/(\d+)\s*$/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 /** Domain service: resolve conflitos de entrega por área entre pedidos. */
 export class PcpConflictResolver {
   resolve(rows: WorkingRow[], areaKeys: PcpAreaKey[]): PcpSalesOrderSchedule[] {
@@ -82,7 +97,7 @@ export class PcpConflictResolver {
           if (t !== 0) return t;
           const d = a.row.baseDate.getTime() - b.row.baseDate.getTime();
           if (d !== 0) return d;
-          return a.row.code.localeCompare(b.row.code);
+          return compareSalesOrderCodes(a.row.code, b.row.code);
         });
 
       for (const candidate of candidates) {
@@ -129,12 +144,7 @@ export class PcpConflictResolver {
           unclassified: row.unclassified,
         };
       })
-      .sort((a, b) => {
-        const da = a.approvalDate || '';
-        const db = b.approvalDate || '';
-        if (da !== db) return da.localeCompare(db);
-        return a.code.localeCompare(b.code);
-      });
+      .sort((a, b) => compareSalesOrderCodes(a.code, b.code));
   }
 
   buildCalendar(orders: PcpSalesOrderSchedule[], areaKeys: PcpAreaKey[]): PcpCalendarDay[] {
@@ -162,7 +172,7 @@ export class PcpConflictResolver {
         entries: entries.sort((a, b) => {
           const areaOrder = areaKeys.indexOf(a.area) - areaKeys.indexOf(b.area);
           if (areaOrder !== 0) return areaOrder;
-          return a.salesOrderCode.localeCompare(b.salesOrderCode);
+          return compareSalesOrderCodes(a.salesOrderCode, b.salesOrderCode);
         }),
       }));
   }
