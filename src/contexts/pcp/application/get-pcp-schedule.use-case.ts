@@ -8,6 +8,7 @@ import {
   WorkingRow,
 } from '../domain/pcp.types';
 import { EnvironmentClassifier } from '../domain/environment-classifier';
+import type { PcpEnvironmentOverrides } from '../domain/environment-classifier';
 import {
   addBusinessDays,
   adjustToTueThuFri,
@@ -17,6 +18,7 @@ import {
   toDateString,
 } from '../domain/pcp-schedule.domain';
 import { PcpConfigService } from '../infrastructure/pcp-config.service';
+import { PcpEnvironmentOverridesService } from '../infrastructure/pcp-environment-overrides.service';
 import { SALES_ORDER_PORT } from './ports/sales-order.port';
 import type { SalesOrderPort } from './ports/sales-order.port';
 
@@ -32,10 +34,16 @@ export class GetPcpScheduleUseCase {
   constructor(
     @Inject(SALES_ORDER_PORT) private readonly salesOrders: SalesOrderPort,
     private readonly pcpConfigService: PcpConfigService,
+    private readonly environmentOverridesService: PcpEnvironmentOverridesService,
   ) {}
+
+  invalidateCache(): void {
+    this.fullCache = null;
+  }
 
   async execute(query?: string, light = false): Promise<PcpScheduleResponse> {
     const areaConfig = await this.pcpConfigService.getConfig();
+    const environmentOverrides = await this.environmentOverridesService.getOverridesMap();
     const areaKeys = pcpAreaKeys(areaConfig);
     const offsets = pcpBusinessDaysMap(areaConfig);
     const cacheKey = `q:${(query || '').trim().toLowerCase()}:cfg:${JSON.stringify(areaConfig.areas.map((a) => [a.key, a.businessDays, a.color]))}`;
@@ -65,7 +73,7 @@ export class GetPcpScheduleUseCase {
       };
     }
 
-    const workingRows = await this.buildRowsWithItems(filtered, offsets, areaKeys);
+    const workingRows = await this.buildRowsWithItems(filtered, offsets, areaKeys, environmentOverrides);
     const resolved = this.conflictResolver.resolve(workingRows, areaKeys);
     const response: PcpScheduleResponse = {
       asOf,
@@ -158,6 +166,7 @@ export class GetPcpScheduleUseCase {
     eligible: SalesOrderSummary[],
     offsets: Record<PcpAreaKey, number>,
     areaKeys: PcpAreaKey[],
+    environmentOverrides: PcpEnvironmentOverrides,
   ): Promise<WorkingRow[]> {
     const rows: WorkingRow[] = new Array(eligible.length);
     let nextIndex = 0;
@@ -176,7 +185,7 @@ export class GetPcpScheduleUseCase {
           console.warn(`[PCP] Falha ao buscar items do PV ${order.code}:`, error?.message || error);
         }
 
-        const classified = this.classifier.classify(items);
+        const classified = this.classifier.classify(items, environmentOverrides);
         const baseDate = parseDateOnly(order.approvalDate!)!;
         const areas: WorkingRow['areas'] = {};
 

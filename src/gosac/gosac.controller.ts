@@ -24,6 +24,7 @@ import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
 import { PcpScheduleService } from './pcp-schedule.service';
 import type { PcpAreaConfig } from '../contexts/pcp/domain/pcp-area-config';
+import type { SavePcpEnvironmentOverrideInput } from '../contexts/pcp/domain/pcp-environment-overrides';
 
 @Controller('gosac')
 @UseGuards(JwtAuthGuard, TabsGuard)
@@ -260,6 +261,20 @@ export class GosacController {
     @Tabs('gosac-pontta/pcp-operacional')
     async updatePcpConfig(@Body() body: PcpAreaConfig) {
         return this.pcpScheduleService.saveConfig(body);
+    }
+
+    /** GET /api/gosac/pcp/environment-overrides — classificações manuais persistidas. */
+    @Get('pcp/environment-overrides')
+    @Tabs('gosac-pontta/pcp-operacional')
+    async listPcpEnvironmentOverrides() {
+        return this.pcpScheduleService.listEnvironmentOverrides();
+    }
+
+    /** PUT /api/gosac/pcp/environment-overrides — categoriza manualmente um ambiente. */
+    @Put('pcp/environment-overrides')
+    @Tabs('gosac-pontta/pcp-operacional')
+    async savePcpEnvironmentOverride(@Body() body: SavePcpEnvironmentOverrideInput) {
+        return this.pcpScheduleService.saveEnvironmentOverride(body);
     }
 
     /**

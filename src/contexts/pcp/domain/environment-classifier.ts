@@ -1,6 +1,8 @@
 import { PcpAreaKey } from './pcp.types';
 
-function normalizeText(value: string): string {
+export type PcpEnvironmentOverrides = Record<string, PcpAreaKey>;
+
+export function normalizeEnvironmentKey(value: string): string {
   return value
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -8,6 +10,10 @@ function normalizeText(value: string): string {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeText(value: string): string {
+  return normalizeEnvironmentKey(value);
 }
 
 function formatEnvironmentDisplayName(rawName: string): string {
@@ -77,7 +83,10 @@ function matchArea(rawName: string): PcpAreaKey | null {
 
 /** Domain service: classifica ambientes em áreas PCP (regra de negócio pura). */
 export class EnvironmentClassifier {
-  classify(items: Array<{ name?: string; description?: string; title?: string }>): Record<PcpAreaKey, string[]> & { unclassified: string[] } {
+  classify(
+    items: Array<{ name?: string; description?: string; title?: string }>,
+    overrides: PcpEnvironmentOverrides = {},
+  ): Record<PcpAreaKey, string[]> & { unclassified: string[] } {
     const result: Record<PcpAreaKey, string[]> & { unclassified: string[] } = {
       molhada: [],
       intima: [],
@@ -90,6 +99,13 @@ export class EnvironmentClassifier {
       if (!rawName) continue;
 
       const displayName = formatEnvironmentDisplayName(rawName);
+      const overrideArea =
+        overrides[normalizeEnvironmentKey(rawName)] ?? overrides[normalizeEnvironmentKey(displayName)];
+      if (overrideArea) {
+        result[overrideArea].push(displayName);
+        continue;
+      }
+
       const area = matchArea(rawName);
       if (area) {
         result[area].push(displayName);
