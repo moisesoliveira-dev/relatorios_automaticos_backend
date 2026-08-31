@@ -14,7 +14,7 @@ export interface PcpAreaConfig {
 }
 
 export const DEFAULT_PCP_AREA_CONFIG: PcpAreaConfig = {
-  baseDateLabel: 'Data de Aprovação do Executivo',
+  baseDateLabel: 'Prazo calculado — Aprovação do Projeto Executivo',
   areas: [
     { key: 'molhada', label: 'Áreas Molhadas', short: 'Molhada', businessDays: 15, color: '#22c55e' },
     { key: 'intima', label: 'Áreas Íntimas', short: 'Íntima', businessDays: 22, color: '#eab308' },
