@@ -62,12 +62,12 @@ export function todayLocal(): Date {
   return now;
 }
 
-/** Ordena códigos de PV (ex.: PV-CM-646) pelo número do pedido. */
+/** Ordena códigos de PV (ex.: PV-CM-646) pelo número do pedido — maior (mais recente) primeiro. */
 export function compareSalesOrderCodes(a: string, b: string): number {
   const na = parseSalesOrderCodeNumber(a);
   const nb = parseSalesOrderCodeNumber(b);
-  if (na !== null && nb !== null && na !== nb) return na - nb;
-  return a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' });
+  if (na !== null && nb !== null && na !== nb) return nb - na;
+  return b.localeCompare(a, 'pt-BR', { numeric: true, sensitivity: 'base' });
 }
 
 function parseSalesOrderCodeNumber(code: string): number | null {
