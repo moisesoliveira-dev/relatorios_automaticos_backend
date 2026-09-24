@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { AppConfigService } from '../infrastructure/config/app-config.service';
 import { AutoTaskProcessedOrder } from './entities/auto-task-processed-order.entity';
-import { obterDataHojeManaus } from './utils/date.utils';
+import { obterDataHojeManaus, toManausDateOnly } from './utils/date.utils';
 
 @Injectable()
 export class AutoTasksProcessedOrderService implements OnModuleInit {
@@ -98,15 +98,6 @@ export class AutoTasksProcessedOrderService implements OnModuleInit {
   }
 
   private normalizarDataVenda(saleDate: string | Date): string {
-    const parsed = new Date(saleDate);
-    if (Number.isNaN(parsed.getTime())) {
-      return obterDataHojeManaus();
-    }
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Manaus',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(parsed);
+    return toManausDateOnly(saleDate) || obterDataHojeManaus();
   }
 }

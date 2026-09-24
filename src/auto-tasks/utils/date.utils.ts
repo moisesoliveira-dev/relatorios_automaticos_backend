@@ -143,39 +143,88 @@ export function calcularDataAprovacaoExecutivo(dataProjetoExecutivo: Date, diasU
   return new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate(), 23, 59, 59, 999);
 }
 
-export function obterDatasConsulta(): { start: string; end: string } {
-  const hoje = new Date();
-  const dataManaus = new Date(hoje.toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const ano = dataManaus.getFullYear();
-  const mes = String(dataManaus.getMonth() + 1).padStart(2, '0');
-  const dia = String(dataManaus.getDate()).padStart(2, '0');
-  const dataString = `${ano}-${mes}-${dia}T04:00:00.000Z`;
+/** Converte saleDate do Pontta para YYYY-MM-DD em calendário de Manaus. */
+export function toManausDateOnly(value: string | Date): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) {
+      const rest = trimmed.slice(10);
+      // date-only ou meia-noite UTC / meia-noite Manaus (T04:00Z) — usa o calendário literal
+      if (
+        !rest ||
+        rest === 'T00:00:00.000Z' ||
+        rest === 'T00:00:00Z' ||
+        rest === 'T04:00:00.000Z' ||
+        rest === 'T04:00:00Z'
+      ) {
+        return match[1];
+      }
+    }
+  }
 
-  return { start: dataString, end: dataString };
-}
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
 
-export function obterDataHojeManaus(): string {
-  const hoje = new Date();
-  const dataManaus = new Date(hoje.toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const ano = dataManaus.getFullYear();
-  const mes = String(dataManaus.getMonth() + 1).padStart(2, '0');
-  const dia = String(dataManaus.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
-}
-
-export function isDataVendaHojeOuFutura(saleDate: string | Date): boolean {
-  const hoje = obterDataHojeManaus();
-  const parsed = new Date(saleDate);
-  if (Number.isNaN(parsed.getTime())) return false;
-
-  const dataVenda = new Intl.DateTimeFormat('en-CA', {
+  return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Manaus',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(parsed);
+}
 
+export function obterDataHojeManaus(): string {
+  return (
+    toManausDateOnly(new Date()) ||
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Manaus',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+  );
+}
+
+/**
+ * Período de consulta no Pontta (início/fim do dia em Manaus, UTC).
+ * lookbackDays > 0 recupera pedidos de dias anteriores não processados (ex.: job parado após deploy).
+ */
+export function obterPeriodoConsultaManaus(lookbackDays = 7): { start: string; end: string; fromDate: string; toDate: string } {
+  const toDate = obterDataHojeManaus();
+  const toParts = toDate.split('-').map(Number);
+  const from = new Date(Date.UTC(toParts[0], toParts[1] - 1, toParts[2]));
+  from.setUTCDate(from.getUTCDate() - Math.max(0, lookbackDays));
+  const fromDate = `${from.getUTCFullYear()}-${String(from.getUTCMonth() + 1).padStart(2, '0')}-${String(from.getUTCDate()).padStart(2, '0')}`;
+
+  const startUtc = new Date(`${fromDate}T00:00:00-04:00`);
+  const endUtc = new Date(`${toDate}T23:59:59.999-04:00`);
+
+  return {
+    start: startUtc.toISOString(),
+    end: endUtc.toISOString(),
+    fromDate,
+    toDate,
+  };
+}
+
+/** @deprecated Preferir obterPeriodoConsultaManaus — mantido para compatibilidade. */
+export function obterDatasConsulta(): { start: string; end: string } {
+  const { start, end } = obterPeriodoConsultaManaus(0);
+  return { start, end };
+}
+
+export function isDataVendaHojeOuFutura(saleDate: string | Date): boolean {
+  const hoje = obterDataHojeManaus();
+  const dataVenda = toManausDateOnly(saleDate);
+  if (!dataVenda) return false;
   return dataVenda >= hoje;
+}
+
+export function isDataVendaNoPeriodo(saleDate: string | Date, fromDate: string, toDate: string): boolean {
+  const dataVenda = toManausDateOnly(saleDate);
+  if (!dataVenda) return false;
+  return dataVenda >= fromDate && dataVenda <= toDate;
 }
 
 export function calcularProximoDiaValidoChecagem(dataAtual: Date): Date {

@@ -8,12 +8,14 @@ import {
   adicionarDiasUteis,
   calcularDataAprovacaoExecutivo,
   calcularDataChecagemMedida,
-  isDataVendaHojeOuFutura,
+  isDataVendaNoPeriodo,
   isDiaValidoChecagem,
-  obterDatasConsulta,
+  obterPeriodoConsultaManaus,
 } from './utils/date.utils';
 
 const VITOR_LIBORIO_ID = '9ed8829b-7361-4695-a105-e8d3f6e7369a';
+/** Dias anteriores a hoje (Manaus) incluídos na busca — cobre falhas após deploy/restart. */
+const LOOKBACK_DAYS = 7;
 
 export interface AutoTasksLogFn {
   (level: 'info' | 'success' | 'warning' | 'error', message: string, data?: unknown): void;
@@ -72,7 +74,7 @@ export class AutoTasksService {
     pushLog('info', 'Autenticando no Pontta...');
     const token = await this.ponttaService.authenticate(email, password, true);
 
-    pushLog('info', 'Recuperando ordens de pedido do dia...');
+    pushLog('info', 'Recuperando ordens de pedido do período...');
     const ordens = await this.recuperarOrdensPedido(token, pushLog);
 
     if (ordens.length === 0) {
@@ -90,30 +92,50 @@ export class AutoTasksService {
 
   private getBusinessUnitHeader(): Record<string, string> {
     const businessUnit = this.appConfig.ponttaApi.businessUnitId;
-    return businessUnit ? { businessunit: businessUnit } : {};
+    return businessUnit ? { Businessunit: businessUnit } : {};
   }
 
   private async recuperarOrdensPedido(
     token: string,
     log: AutoTasksLogFn,
   ): Promise<SalesOrderSummary[]> {
-    const { start, end } = obterDatasConsulta();
-    const url = `${this.appConfig.ponttaApi.apiUrl}/sales-orders/summary`;
-    const headers = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...this.getBusinessUnitHeader(),
-    };
+    const { start, end, fromDate, toDate } = obterPeriodoConsultaManaus(LOOKBACK_DAYS);
+    const pageSize = 100;
+    const maxPages = 20;
+    const ordensCompletas: SalesOrderSummary[] = [];
 
-    const response = await axios.get(url, { headers, params: { start, end } });
-    const ordensCompletas: SalesOrderSummary[] = response.data || [];
+    for (let page = 0; page < maxPages; page += 1) {
+      const chunk = await this.ponttaService.getSalesOrdersSummaryByDateRange(
+        token,
+        start,
+        end,
+        page,
+        pageSize,
+      );
+      for (const item of chunk) {
+        ordensCompletas.push({
+          id: String(item?.id || ''),
+          code: String(item?.code || item?.number || ''),
+          saleDate: String(item?.saleDate || ''),
+        });
+      }
+      log('info', `Página ${page} de pedidos carregada.`, { count: chunk.length });
+      if (chunk.length < pageSize) break;
+    }
+
     const ordensNovas: SalesOrderSummary[] = [];
-    let ignoradasPassado = 0;
+    let ignoradasForaPeriodo = 0;
     let ignoradasJaProcessadas = 0;
+    let ignoradasSemCodigo = 0;
 
     for (const ordem of ordensCompletas) {
-      if (!isDataVendaHojeOuFutura(ordem.saleDate)) {
-        ignoradasPassado += 1;
+      if (!ordem.code) {
+        ignoradasSemCodigo += 1;
+        continue;
+      }
+
+      if (!isDataVendaNoPeriodo(ordem.saleDate, fromDate, toDate)) {
+        ignoradasForaPeriodo += 1;
         continue;
       }
 
@@ -128,8 +150,12 @@ export class AutoTasksService {
     log('info', `Ordens: ${ordensCompletas.length} total, ${ordensNovas.length} novas`, {
       start,
       end,
-      ignoradasPassado,
+      fromDate,
+      toDate,
+      lookbackDays: LOOKBACK_DAYS,
+      ignoradasForaPeriodo,
       ignoradasJaProcessadas,
+      ignoradasSemCodigo,
     });
 
     return ordensNovas;
@@ -145,7 +171,7 @@ export class AutoTasksService {
     for (let i = 0; i < ordens.length; i++) {
       const ordem = ordens[i];
       try {
-        const url = `${this.appConfig.ponttaApi.apiUrl}/sales-orders?code=${ordem.code}`;
+        const url = `${this.appConfig.ponttaApi.apiUrl}/sales-orders?code=${encodeURIComponent(ordem.code)}`;
         const headers = {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -237,10 +263,15 @@ export class AutoTasksService {
     const diasRevisao = this.appConfig.autoTasks.diasRevisaoProjeto;
     const diasProjetoExecutivo = this.appConfig.autoTasks.diasProjetoExecutivo;
     const diasAprovacao = this.appConfig.autoTasks.diasAprovacaoExecutivo;
+    const { fromDate, toDate } = obterPeriodoConsultaManaus(LOOKBACK_DAYS);
 
     for (const ordem of detalhesOrdens) {
-      if (!isDataVendaHojeOuFutura(ordem.saleDate)) {
-        log('warning', `Ordem ${ordem.code} ignorada — venda anterior a hoje`, { saleDate: ordem.saleDate });
+      if (!isDataVendaNoPeriodo(ordem.saleDate, fromDate, toDate)) {
+        log('warning', `Ordem ${ordem.code} ignorada — venda fora do período`, {
+          saleDate: ordem.saleDate,
+          fromDate,
+          toDate,
+        });
         continue;
       }
 
@@ -251,7 +282,13 @@ export class AutoTasksService {
         }
       }
 
+      if (ambientes.length === 0) {
+        log('warning', `Ordem ${ordem.code} sem ambientes — não será marcada como processada`);
+        continue;
+      }
+
       let numeroAmbiente = 1;
+      let tasksCriadasNestaOrdem = 0;
 
       for (const ambiente of ambientes) {
         try {
@@ -339,6 +376,7 @@ export class AutoTasksService {
           );
 
           resultadosTasks.push({ ordem: ordem.code, ambiente, numeroAmbiente });
+          tasksCriadasNestaOrdem += 1;
           await this.database.passarRodizioParaProximo(projetistaDoAmbiente.projetistaid);
 
           if (projetistaDoAmbiente.projetistaid === VITOR_LIBORIO_ID) {
@@ -355,9 +393,14 @@ export class AutoTasksService {
         }
       }
 
+      if (tasksCriadasNestaOrdem === 0) {
+        log('warning', `Ordem ${ordem.code} sem tasks criadas — não será marcada como processada`);
+        continue;
+      }
+
       try {
         await this.processedOrders.registrar(ordem.id, ordem.code, ordem.saleDate);
-        log('info', `Ordem ${ordem.code} registrada como processada`);
+        log('info', `Ordem ${ordem.code} registrada como processada (${tasksCriadasNestaOrdem} ambiente(s))`);
       } catch (error) {
         log('warning', `Erro ao salvar ordem ${ordem.code} no banco`, {
           message: (error as Error).message,
