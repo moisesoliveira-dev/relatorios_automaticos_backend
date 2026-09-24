@@ -81,6 +81,22 @@ function matchArea(rawName: string): PcpAreaKey | null {
   return null;
 }
 
+/** Classifica um único nome de ambiente (com overrides opcionais). */
+export function classifyEnvironmentName(
+  rawName: string,
+  overrides: PcpEnvironmentOverrides = {},
+): PcpAreaKey | null {
+  const name = String(rawName || '').trim();
+  if (!name) return null;
+
+  const displayName = formatEnvironmentDisplayName(name);
+  return (
+    overrides[normalizeEnvironmentKey(name)] ??
+    overrides[normalizeEnvironmentKey(displayName)] ??
+    matchArea(name)
+  );
+}
+
 /** Domain service: classifica ambientes em áreas PCP (regra de negócio pura). */
 export class EnvironmentClassifier {
   classify(
@@ -99,14 +115,7 @@ export class EnvironmentClassifier {
       if (!rawName) continue;
 
       const displayName = formatEnvironmentDisplayName(rawName);
-      const overrideArea =
-        overrides[normalizeEnvironmentKey(rawName)] ?? overrides[normalizeEnvironmentKey(displayName)];
-      if (overrideArea) {
-        result[overrideArea].push(displayName);
-        continue;
-      }
-
-      const area = matchArea(rawName);
+      const area = classifyEnvironmentName(rawName, overrides);
       if (area) {
         result[area].push(displayName);
       } else {

@@ -1,4 +1,9 @@
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+
+export const ASSIGN_BY_PCP_AREA_SETTING_KEY = 'AUTO_TASKS_ASSIGN_BY_PCP_AREA';
+
+export const PONTTA_PCP_AREAS = ['molhada', 'intima', 'social'] as const;
+export type PonttaPcpAreaDto = (typeof PONTTA_PCP_AREAS)[number];
 
 export class CreatePonttaRotationDto {
     @IsString()
@@ -16,6 +21,11 @@ export class CreatePonttaRotationDto {
     @IsOptional()
     @IsBoolean()
     turn_v?: boolean;
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
+    @IsIn(PONTTA_PCP_AREAS)
+    pcpArea?: PonttaPcpAreaDto | null;
 }
 
 export class UpdatePonttaRotationDto {
@@ -36,4 +46,14 @@ export class UpdatePonttaRotationDto {
     @IsOptional()
     @IsBoolean()
     turn_v?: boolean;
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
+    @IsIn(PONTTA_PCP_AREAS)
+    pcpArea?: PonttaPcpAreaDto | null;
+}
+
+export class UpdateAssignByPcpAreaDto {
+    @IsBoolean()
+    enabled: boolean;
 }

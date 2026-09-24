@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PonttaService } from '../pontta/pontta.service';
 import { AppConfigService } from '../infrastructure/config/app-config.service';
-import { AutoTasksDatabaseService, Projetista } from './auto-tasks-database.service';
+import { SettingsService } from '../settings/settings.service';
+import { classifyEnvironmentName } from '../contexts/pcp/domain/environment-classifier';
+import { PcpEnvironmentOverridesService } from '../contexts/pcp/infrastructure/pcp-environment-overrides.service';
+import { ASSIGN_BY_PCP_AREA_SETTING_KEY } from '../rotation/dto/pontta-rotation.dto';
+import { AutoTasksDatabaseService, PcpAreaKey, Projetista } from './auto-tasks-database.service';
 import { AutoTasksProcessedOrderService } from './auto-tasks-processed-order.service';
 import {
   adicionarDiasUteis,
@@ -53,6 +57,8 @@ export class AutoTasksService {
     private readonly appConfig: AppConfigService,
     private readonly database: AutoTasksDatabaseService,
     private readonly processedOrders: AutoTasksProcessedOrderService,
+    private readonly settingsService: SettingsService,
+    private readonly environmentOverrides: PcpEnvironmentOverridesService,
   ) {}
 
   listProcessedOrders(options?: { q?: string; limit?: number; offset?: number; todayOnly?: boolean }) {
@@ -283,6 +289,12 @@ export class AutoTasksService {
     const diasProjetoExecutivo = this.appConfig.autoTasks.diasProjetoExecutivo;
     const diasAprovacao = this.appConfig.autoTasks.diasAprovacaoExecutivo;
     const { fromDate, toDate } = periodo;
+    const assignByArea = await this.isAssignByPcpAreaEnabled();
+    const overrides = assignByArea ? await this.environmentOverrides.getOverridesMap() : {};
+
+    if (assignByArea) {
+      log('info', 'Atribuição por área PCP ativa — responsáveis conforme rodízio Pontta.');
+    }
 
     for (const ordem of detalhesOrdens) {
       if (!isDataVendaNoPeriodo(ordem.saleDate, fromDate, toDate)) {
@@ -311,7 +323,13 @@ export class AutoTasksService {
 
       for (const ambiente of ambientes) {
         try {
-          const projetistaDoAmbiente = await this.database.obterProximoProjetista();
+          const pcpArea = assignByArea ? classifyEnvironmentName(ambiente, overrides) : null;
+          const { projetista: projetistaDoAmbiente, usedArea } = await this.resolverProjetistaDoAmbiente(
+            pcpArea,
+            log,
+            ambiente,
+            ordem.code,
+          );
           let projetistaChecagem = projetistaDoAmbiente;
 
           if (projetistaDoAmbiente.projetistaid === VITOR_LIBORIO_ID) {
@@ -394,9 +412,14 @@ export class AutoTasksService {
             projetistaDoAmbiente,
           );
 
-          resultadosTasks.push({ ordem: ordem.code, ambiente, numeroAmbiente });
+          resultadosTasks.push({ ordem: ordem.code, ambiente, numeroAmbiente, pcpArea: usedArea });
           tasksCriadasNestaOrdem += 1;
-          await this.database.passarRodizioParaProximo(projetistaDoAmbiente.projetistaid);
+
+          if (usedArea) {
+            await this.database.passarRodizioParaProximoNaArea(usedArea, projetistaDoAmbiente.projetistaid);
+          } else {
+            await this.database.passarRodizioParaProximo(projetistaDoAmbiente.projetistaid);
+          }
 
           if (projetistaDoAmbiente.projetistaid === VITOR_LIBORIO_ID) {
             await this.database.passarRodizioVitorParaProximo(projetistaChecagem.projetistaid);
@@ -430,5 +453,39 @@ export class AutoTasksService {
     }
 
     return resultadosTasks;
+  }
+
+  private async isAssignByPcpAreaEnabled(): Promise<boolean> {
+    const raw = await this.settingsService.findByKey(ASSIGN_BY_PCP_AREA_SETTING_KEY);
+    return raw === 'true' || raw === '1';
+  }
+
+  private async resolverProjetistaDoAmbiente(
+    pcpArea: PcpAreaKey | null,
+    log: AutoTasksLogFn,
+    ambiente: string,
+    orderCode: string,
+  ): Promise<{ projetista: Projetista; usedArea: PcpAreaKey | null }> {
+    if (!pcpArea) {
+      return {
+        projetista: await this.database.obterProximoProjetista(),
+        usedArea: null,
+      };
+    }
+
+    try {
+      const projetista = await this.database.obterProximoProjetistaPorArea(pcpArea);
+      log('info', `Ambiente "${ambiente}" (${orderCode}) → área ${pcpArea} → ${projetista.name}`);
+      return { projetista, usedArea: pcpArea };
+    } catch (error) {
+      log('warning', `Sem responsável para área "${pcpArea}" em "${ambiente}" — usando rodízio geral`, {
+        message: (error as Error).message,
+        orderCode,
+      });
+      return {
+        projetista: await this.database.obterProximoProjetista(),
+        usedArea: null,
+      };
+    }
   }
 }

@@ -14,7 +14,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TabsGuard } from '../auth/guards/tabs.guard';
 import { Tabs } from '../auth/decorators/tabs.decorator';
 import { PonttaRotationService } from './pontta-rotation.service';
-import { CreatePonttaRotationDto, UpdatePonttaRotationDto } from './dto/pontta-rotation.dto';
+import {
+    CreatePonttaRotationDto,
+    UpdateAssignByPcpAreaDto,
+    UpdatePonttaRotationDto,
+} from './dto/pontta-rotation.dto';
 
 @Controller('pontta-rotation')
 @UseGuards(JwtAuthGuard, TabsGuard)
@@ -25,6 +29,16 @@ export class PonttaRotationController {
     @Get()
     findAll() {
         return this.ponttaRotationService.findAll();
+    }
+
+    @Get('settings/assign-by-pcp-area')
+    getAssignByPcpArea() {
+        return this.ponttaRotationService.getAssignByPcpAreaEnabled();
+    }
+
+    @Put('settings/assign-by-pcp-area')
+    setAssignByPcpArea(@Body() body: UpdateAssignByPcpAreaDto) {
+        return this.ponttaRotationService.setAssignByPcpAreaEnabled(!!body.enabled);
     }
 
     @Get('lookup/pontta-profiles')

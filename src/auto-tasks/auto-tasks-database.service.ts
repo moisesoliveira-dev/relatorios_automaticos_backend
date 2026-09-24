@@ -6,7 +6,10 @@ import { calcularProximoDiaValidoChecagem } from './utils/date.utils';
 export interface Projetista {
   projetistaid: string;
   name: string;
+  pcpArea?: string | null;
 }
+
+export type PcpAreaKey = 'molhada' | 'intima' | 'social';
 
 export interface ChecagemAgendamento {
   deadline: string;
@@ -62,12 +65,52 @@ export class AutoTasksDatabaseService {
     const client = await this.getPool().connect();
     try {
       const result = await client.query(
-        'SELECT projetistaid, name FROM tb_pontta_rotation WHERE turn = true LIMIT 1',
+        'SELECT projetistaid, name, pcp_area AS "pcpArea" FROM tb_pontta_rotation WHERE turn = true LIMIT 1',
       );
       if (result.rows.length === 0) {
         throw new Error('Nenhum projetista encontrado com turn = true');
       }
       return result.rows[0];
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Retorna o projetista da vez entre os responsáveis pela área PCP.
+   * Se ninguém da área estiver com turn=true, elege o primeiro da área e marca a vez.
+   */
+  async obterProximoProjetistaPorArea(area: PcpAreaKey): Promise<Projetista> {
+    const client = await this.getPool().connect();
+    try {
+      const turnResult = await client.query(
+        `SELECT projetistaid, name, pcp_area AS "pcpArea"
+         FROM tb_pontta_rotation
+         WHERE pcp_area = $1 AND turn = true
+         LIMIT 1`,
+        [area],
+      );
+      if (turnResult.rows.length > 0) {
+        return turnResult.rows[0];
+      }
+
+      const firstResult = await client.query(
+        `SELECT projetistaid, name, pcp_area AS "pcpArea"
+         FROM tb_pontta_rotation
+         WHERE pcp_area = $1
+         ORDER BY projetistaid ASC
+         LIMIT 1`,
+        [area],
+      );
+      if (firstResult.rows.length === 0) {
+        throw new Error(`Nenhum projetista responsável pela área "${area}"`);
+      }
+
+      await client.query('UPDATE tb_pontta_rotation SET turn = false WHERE pcp_area = $1', [area]);
+      await client.query('UPDATE tb_pontta_rotation SET turn = true WHERE projetistaid = $1', [
+        firstResult.rows[0].projetistaid,
+      ]);
+      return firstResult.rows[0];
     } finally {
       client.release();
     }
@@ -80,7 +123,7 @@ export class AutoTasksDatabaseService {
       await client.query('UPDATE tb_pontta_rotation SET turn = false WHERE projetistaid = $1', [projetistaAtualId]);
 
       const proximoResult = await client.query(
-        `SELECT projetistaid, name FROM tb_pontta_rotation
+        `SELECT projetistaid, name, pcp_area AS "pcpArea" FROM tb_pontta_rotation
          WHERE projetistaid > $1 ORDER BY projetistaid ASC LIMIT 1`,
         [projetistaAtualId],
       );
@@ -90,8 +133,53 @@ export class AutoTasksDatabaseService {
         proximoProjetista = proximoResult.rows[0];
       } else {
         const primeiroResult = await client.query(
-          'SELECT projetistaid, name FROM tb_pontta_rotation ORDER BY projetistaid ASC LIMIT 1',
+          'SELECT projetistaid, name, pcp_area AS "pcpArea" FROM tb_pontta_rotation ORDER BY projetistaid ASC LIMIT 1',
         );
+        proximoProjetista = primeiroResult.rows[0];
+      }
+
+      await client.query('UPDATE tb_pontta_rotation SET turn = true WHERE projetistaid = $1', [
+        proximoProjetista.projetistaid,
+      ]);
+      await client.query('COMMIT');
+      return proximoProjetista;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Avança a vez apenas entre projetistas da mesma área PCP. */
+  async passarRodizioParaProximoNaArea(area: PcpAreaKey, projetistaAtualId: string): Promise<Projetista> {
+    const client = await this.getPool().connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE tb_pontta_rotation SET turn = false WHERE projetistaid = $1 AND pcp_area = $2',
+        [projetistaAtualId, area],
+      );
+
+      const proximoResult = await client.query(
+        `SELECT projetistaid, name, pcp_area AS "pcpArea" FROM tb_pontta_rotation
+         WHERE pcp_area = $1 AND projetistaid > $2
+         ORDER BY projetistaid ASC LIMIT 1`,
+        [area, projetistaAtualId],
+      );
+
+      let proximoProjetista: Projetista;
+      if (proximoResult.rows.length > 0) {
+        proximoProjetista = proximoResult.rows[0];
+      } else {
+        const primeiroResult = await client.query(
+          `SELECT projetistaid, name, pcp_area AS "pcpArea" FROM tb_pontta_rotation
+           WHERE pcp_area = $1 ORDER BY projetistaid ASC LIMIT 1`,
+          [area],
+        );
+        if (primeiroResult.rows.length === 0) {
+          throw new Error(`Nenhum projetista responsável pela área "${area}"`);
+        }
         proximoProjetista = primeiroResult.rows[0];
       }
 
@@ -176,6 +264,14 @@ export class AutoTasksDatabaseService {
 
       if (columnResult.rows.length === 0) {
         await client.query('ALTER TABLE tb_pontta_rotation ADD COLUMN turn_v BOOLEAN DEFAULT NULL');
+      }
+
+      const pcpAreaColumn = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name='tb_pontta_rotation' AND column_name='pcp_area'`,
+      );
+      if (pcpAreaColumn.rows.length === 0) {
+        await client.query('ALTER TABLE tb_pontta_rotation ADD COLUMN pcp_area VARCHAR(32) DEFAULT NULL');
       }
     } finally {
       client.release();
