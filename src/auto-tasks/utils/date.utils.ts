@@ -188,9 +188,31 @@ export function obterDataHojeManaus(): string {
 
 /**
  * Período de consulta no Pontta (início/fim do dia em Manaus, UTC).
- * lookbackDays > 0 recupera pedidos de dias anteriores não processados (ex.: job parado após deploy).
+ * - targetDate YYYY-MM-DD: processa só aquele dia (manual / reprocessamento).
+ * - lookbackDays > 0 (sem targetDate): recupera pedidos de dias anteriores não processados.
  */
-export function obterPeriodoConsultaManaus(lookbackDays = 7): { start: string; end: string; fromDate: string; toDate: string } {
+export function obterPeriodoConsultaManaus(
+  lookbackDays = 7,
+  targetDate?: string,
+): { start: string; end: string; fromDate: string; toDate: string } {
+  const normalizedTarget = targetDate?.trim();
+  if (normalizedTarget) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTarget)) {
+      throw new Error('Data inválida. Use o formato YYYY-MM-DD.');
+    }
+    const startUtc = new Date(`${normalizedTarget}T00:00:00-04:00`);
+    const endUtc = new Date(`${normalizedTarget}T23:59:59.999-04:00`);
+    if (Number.isNaN(startUtc.getTime()) || Number.isNaN(endUtc.getTime())) {
+      throw new Error('Data inválida para cálculo do período em Manaus.');
+    }
+    return {
+      start: startUtc.toISOString(),
+      end: endUtc.toISOString(),
+      fromDate: normalizedTarget,
+      toDate: normalizedTarget,
+    };
+  }
+
   const toDate = obterDataHojeManaus();
   const toParts = toDate.split('-').map(Number);
   const from = new Date(Date.UTC(toParts[0], toParts[1] - 1, toParts[2]));

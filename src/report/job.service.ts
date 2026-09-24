@@ -292,7 +292,7 @@ export class JobService implements OnModuleInit {
             if (jobId === 'delivery-material-dates') {
                 summary = await this.executeDeliveryMaterialDatesJob(jobId, options?.salesOrderDate);
             } else if (jobId === 'auto-tasks') {
-                summary = await this.executeAutoTasksJob(jobId);
+                summary = await this.executeAutoTasksJob(jobId, options?.salesOrderDate);
             }
 
             state.lastStatus = 'success';
@@ -312,10 +312,13 @@ export class JobService implements OnModuleInit {
         }
     }
 
-    private async executeAutoTasksJob(jobId: CodeJobId): Promise<string> {
-        return this.autoTasksService.execute((level, message, data) => {
-            this.pushCodeJobLog(jobId, level, message, data);
-        });
+    private async executeAutoTasksJob(jobId: CodeJobId, salesOrderDate?: string): Promise<string> {
+        return this.autoTasksService.execute(
+            (level, message, data) => {
+                this.pushCodeJobLog(jobId, level, message, data);
+            },
+            { salesOrderDate },
+        );
     }
 
     private async executeDeliveryMaterialDatesJob(

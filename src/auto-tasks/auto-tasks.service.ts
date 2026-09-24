@@ -39,6 +39,11 @@ interface TaskData {
   deadline: string;
 }
 
+export interface AutoTasksExecuteOptions {
+  /** YYYY-MM-DD (Manaus). Se informado, processa só esse dia — PVs já processados são ignorados. */
+  salesOrderDate?: string;
+}
+
 @Injectable()
 export class AutoTasksService {
   private readonly logger = new Logger(AutoTasksService.name);
@@ -58,13 +63,18 @@ export class AutoTasksService {
     return this.processedOrders.remover(code);
   }
 
-  async execute(log?: AutoTasksLogFn): Promise<string> {
+  async execute(log?: AutoTasksLogFn, options?: AutoTasksExecuteOptions): Promise<string> {
     const pushLog = log || ((level, message, data) => {
       const extra = data ? ` ${JSON.stringify(data)}` : '';
       if (level === 'error') this.logger.error(message + extra);
       else if (level === 'warning') this.logger.warn(message + extra);
       else this.logger.log(message + extra);
     });
+
+    const salesOrderDate = options?.salesOrderDate?.trim() || undefined;
+    const periodo = salesOrderDate
+      ? obterPeriodoConsultaManaus(0, salesOrderDate)
+      : obterPeriodoConsultaManaus(LOOKBACK_DAYS);
 
     pushLog('info', 'Testando conexão com banco do rodízio...');
     await this.database.testarConexaoBanco();
@@ -74,20 +84,28 @@ export class AutoTasksService {
     pushLog('info', 'Autenticando no Pontta...');
     const token = await this.ponttaService.authenticate(email, password, true);
 
-    pushLog('info', 'Recuperando ordens de pedido do período...');
-    const ordens = await this.recuperarOrdensPedido(token, pushLog);
+    if (salesOrderDate) {
+      pushLog('info', `Recuperando ordens de venda de ${salesOrderDate} (somente não processadas)...`);
+    } else {
+      pushLog('info', 'Recuperando ordens de pedido do período...');
+    }
+
+    const ordens = await this.recuperarOrdensPedido(token, pushLog, periodo);
 
     if (ordens.length === 0) {
-      return 'Nenhuma ordem nova para processar.';
+      return salesOrderDate
+        ? `Nenhuma ordem nova para processar em ${salesOrderDate}.`
+        : 'Nenhuma ordem nova para processar.';
     }
 
     pushLog('info', `Processando detalhes de ${ordens.length} ordem(ns)...`);
     const detalhes = await this.processarDetalhesOrdens(token, ordens, pushLog);
 
     pushLog('info', 'Criando tasks nos ambientes...');
-    const resultados = await this.processarAmbientesECriarTasks(token, detalhes, pushLog);
+    const resultados = await this.processarAmbientesECriarTasks(token, detalhes, pushLog, periodo);
 
-    return `${resultados.length} conjunto(s) de tasks criados para ${ordens.length} ordem(ns).`;
+    const dateLabel = salesOrderDate ? ` (${salesOrderDate})` : '';
+    return `${resultados.length} conjunto(s) de tasks criados para ${ordens.length} ordem(ns)${dateLabel}.`;
   }
 
   private getBusinessUnitHeader(): Record<string, string> {
@@ -98,8 +116,9 @@ export class AutoTasksService {
   private async recuperarOrdensPedido(
     token: string,
     log: AutoTasksLogFn,
+    periodo: { start: string; end: string; fromDate: string; toDate: string },
   ): Promise<SalesOrderSummary[]> {
-    const { start, end, fromDate, toDate } = obterPeriodoConsultaManaus(LOOKBACK_DAYS);
+    const { start, end, fromDate, toDate } = periodo;
     const pageSize = 100;
     const maxPages = 20;
     const ordensCompletas: SalesOrderSummary[] = [];
@@ -152,7 +171,6 @@ export class AutoTasksService {
       end,
       fromDate,
       toDate,
-      lookbackDays: LOOKBACK_DAYS,
       ignoradasForaPeriodo,
       ignoradasJaProcessadas,
       ignoradasSemCodigo,
@@ -257,13 +275,14 @@ export class AutoTasksService {
     token: string,
     detalhesOrdens: SalesOrderDetail[],
     log: AutoTasksLogFn,
+    periodo: { fromDate: string; toDate: string },
   ): Promise<unknown[]> {
     const resultadosTasks: unknown[] = [];
     const diasChecagem = this.appConfig.autoTasks.diasChecagemMedida;
     const diasRevisao = this.appConfig.autoTasks.diasRevisaoProjeto;
     const diasProjetoExecutivo = this.appConfig.autoTasks.diasProjetoExecutivo;
     const diasAprovacao = this.appConfig.autoTasks.diasAprovacaoExecutivo;
-    const { fromDate, toDate } = obterPeriodoConsultaManaus(LOOKBACK_DAYS);
+    const { fromDate, toDate } = periodo;
 
     for (const ordem of detalhesOrdens) {
       if (!isDataVendaNoPeriodo(ordem.saleDate, fromDate, toDate)) {
