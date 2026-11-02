@@ -26,6 +26,7 @@ export interface EnvConfig {
   MASTER_SETUP_TOKEN?: string;
   DB_SSL_REJECT_UNAUTHORIZED: boolean;
   DB_SYNCHRONIZE: boolean;
+  DB_SSL?: boolean;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL: string;
   OPENAI_TEMPERATURE?: number;
@@ -165,6 +166,8 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     MASTER_SETUP_TOKEN: readString(config, 'MASTER_SETUP_TOKEN'),
     DB_SSL_REJECT_UNAUTHORIZED: readString(config, 'DB_SSL_REJECT_UNAUTHORIZED') === 'true',
     DB_SYNCHRONIZE: readString(config, 'DB_SYNCHRONIZE') === 'true',
+    // SSL na conexão com o banco, independente do NODE_ENV. Vazio = segue o NODE_ENV (produção liga).
+    DB_SSL: readString(config, 'DB_SSL') === undefined ? undefined : readString(config, 'DB_SSL') === 'true',
     OPENAI_API_KEY: readString(config, 'OPENAI_API_KEY'),
     OPENAI_MODEL: readString(config, 'OPENAI_MODEL', 'gpt-4o-mini')!,
     // Modelos de raciocínio (o-series/gpt-5) não aceitam temperature: deixe OPENAI_TEMPERATURE vazio para omitir.

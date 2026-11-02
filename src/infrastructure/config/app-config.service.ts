@@ -82,6 +82,11 @@ export class AppConfigService {
     return this.env.DB_SSL_REJECT_UNAUTHORIZED;
   }
 
+  /** SSL do banco: DB_SSL explícito vence; sem ele, produção liga e o resto desliga. */
+  get dbSsl(): boolean {
+    return this.env.DB_SSL ?? this.isProduction;
+  }
+
   get dbSynchronize(): boolean {
     return this.env.DB_SYNCHRONIZE;
   }

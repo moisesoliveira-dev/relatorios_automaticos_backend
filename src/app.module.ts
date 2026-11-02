@@ -75,7 +75,7 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
     return {
       ...baseConfig,
       ...parsed,
-      ssl: appConfig.isProduction ? { rejectUnauthorized: appConfig.dbSslRejectUnauthorized } : false,
+      ssl: appConfig.dbSsl ? { rejectUnauthorized: appConfig.dbSslRejectUnauthorized } : false,
     };
   }
 

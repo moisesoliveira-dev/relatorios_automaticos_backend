@@ -23,7 +23,8 @@
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:show": "npm run typeorm -- migration:show",
     "migration:generate": "npm run typeorm -- migration:generate",
-    "chatbot:eval": "ts-node scripts/chatbot/eval.ts"
+    "chatbot:eval": "ts-node scripts/chatbot/eval.ts",
+    "security:rotate-key": "ts-node scripts/security/rotate-encryption-key.ts"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
@@ -44,13 +45,13 @@
     "exceljs": "^4.4.0",
     "googleapis": "^171.4.0",
     "helmet": "^8.3.0",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.3.1",
     "openai": "^7.47.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
     "pg": "^8.18.0",
-    "puppeteer": "^24.38.0",
+    "puppeteer": "^25.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.28"
