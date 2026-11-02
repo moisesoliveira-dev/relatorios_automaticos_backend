@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppInitService } from './app-init.service';
@@ -23,6 +25,9 @@ import { Setting } from './settings/entities/setting.entity';
 import { Rotation } from './rotation/entities/rotation.entity';
 import { PonttaRotation } from './rotation/entities/pontta-rotation.entity';
 import { AutoTaskProcessedOrder } from './auto-tasks/entities/auto-task-processed-order.entity';
+import { ChatbotConversation } from './chatbot/entities/chatbot-conversation.entity';
+import { ChatbotBookedSlot } from './chatbot/entities/chatbot-booked-slot.entity';
+import { join } from 'path';
 
 function parseDatabaseUrl(databaseUrl: string) {
   const parsed = new URL(databaseUrl);
@@ -52,8 +57,14 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
       PonttaSalesOrder,
       GosacSalesOrderLink,
       AutoTaskProcessedOrder,
+      ChatbotConversation,
+      ChatbotBookedSlot,
     ],
-    synchronize: !appConfig.isProduction,
+    migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+    // Migrations pendentes rodam no boot (todas usam IF NOT EXISTS)
+    migrationsRun: true,
+    // Só sincroniza schema automaticamente se pedido explicitamente (DB_SYNCHRONIZE=true) e fora de produção
+    synchronize: !appConfig.isProduction && appConfig.dbSynchronize,
     logging: appConfig.isDevelopment,
   };
 
@@ -62,7 +73,7 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
     return {
       ...baseConfig,
       ...parsed,
-      ssl: appConfig.isProduction ? { rejectUnauthorized: false } : false,
+      ssl: appConfig.isProduction ? { rejectUnauthorized: appConfig.dbSslRejectUnauthorized } : false,
     };
   }
 
@@ -91,7 +102,7 @@ function buildRotationDatabaseConfig(appConfig: AppConfigService): TypeOrmModule
     synchronize: false,
     logging: false,
     ...parsed,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: appConfig.dbSslRejectUnauthorized },
   };
 }
 
@@ -120,6 +131,7 @@ if (!rotationEnabled) {
   imports: [
     InfrastructureConfigModule,
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     TypeOrmModule.forRootAsync({
       imports: [InfrastructureConfigModule],
       useFactory: (appConfig: AppConfigService) => buildAppDatabaseConfig(appConfig),
@@ -133,6 +145,6 @@ if (!rotationEnabled) {
     GosacModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AppInitService],
+  providers: [AppService, AppInitService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

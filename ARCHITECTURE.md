@@ -86,3 +86,7 @@ cd ..
 docker compose up --build
 # Frontend: http://localhost:8080  |  API: http://localhost:3000/api
 ```
+
+
+## Chatbot com IA
+Módulo `src/chatbot/` (motor de regras puro + agentes OpenAI). Guia completo: `../docs/chatbot-verador/CHATBOT-IA.md`.

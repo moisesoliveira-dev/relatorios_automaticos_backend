@@ -22,6 +22,31 @@ export interface EnvConfig {
   PONTTA_PASSWORD: string;
   GOSAC_BASE_URL?: string;
   GOSAC_API_KEY?: string;
+  GOSAC_WEBHOOK_SECRET?: string;
+  MASTER_SETUP_TOKEN?: string;
+  DB_SSL_REJECT_UNAUTHORIZED: boolean;
+  DB_SYNCHRONIZE: boolean;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL: string;
+  OPENAI_TEMPERATURE?: number;
+  OPENAI_TIMEOUT_MS: number;
+  CHATBOT_ENABLED: boolean;
+  CHATBOT_AI_ENABLED: boolean;
+  CHATBOT_PONTTA_ENABLED: boolean;
+  CHATBOT_DEBOUNCE_MS: number;
+  CHATBOT_MAX_INVALID: number;
+  CHATBOT_MAX_OFF_TOPIC: number;
+  CHATBOT_HUMANIZE: boolean;
+  CHATBOT_TYPING_DELAY: boolean;
+  CHATBOT_WRITER_DAILY_LIMIT: number;
+  CHATBOT_AI_DAILY_LIMIT: number;
+  CHATBOT_HUMAN_IDLE_MINUTES: number;
+  CHATBOT_MEASURE_OWNER_ID?: string;
+  CHATBOT_DEAL_WORKFLOW_ID?: string;
+  CHATBOT_DEAL_FALLBACK_EMAIL?: string;
+  CHATBOT_DRIVE_ROOT_FOLDER_ID?: string;
+  CHATBOT_FALLBACK_GOSAC_USER_ID?: number;
+  CHATBOT_FALLBACK_GOSAC_QUEUE_ID?: number;
   SMTP_HOST?: string;
   SMTP_PORT?: string;
   SMTP_USER?: string;
@@ -75,6 +100,14 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     errors.push('ENCRYPTION_KEY deve ter ao menos 32 caracteres em produção');
   }
 
+  const placeholder = /^(sua[_-]|change[_-]?me|troque|example|secret$)/i;
+  if (isProduction && jwtSecret && placeholder.test(jwtSecret)) {
+    errors.push('JWT_SECRET ainda é um valor de exemplo — gere um segredo aleatório');
+  }
+  if (isProduction && encryptionKey && placeholder.test(encryptionKey)) {
+    errors.push('ENCRYPTION_KEY ainda é um valor de exemplo — gere uma chave aleatória');
+  }
+
   if (!ponttaEmail) errors.push('PONTTA_EMAIL é obrigatório');
   if (!ponttaPassword) errors.push('PONTTA_PASSWORD é obrigatório');
 
@@ -83,6 +116,23 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
 
   if (isProduction && !readString(config, 'DATABASE_URL') && !readString(config, 'DB_HOST')) {
     errors.push('DATABASE_URL ou DB_* são obrigatórios em produção');
+  }
+
+  const chatbotEnabled = readString(config, 'CHATBOT_ENABLED') === 'true';
+  const aiEnabled = readString(config, 'CHATBOT_AI_ENABLED', 'true') !== 'false';
+  if (chatbotEnabled) {
+    if (aiEnabled && !readString(config, 'OPENAI_API_KEY')) {
+      errors.push('OPENAI_API_KEY é obrigatório com CHATBOT_ENABLED=true (ou use CHATBOT_AI_ENABLED=false)');
+    }
+    if (!readString(config, 'GOSAC_BASE_URL') || !readString(config, 'GOSAC_API_KEY')) {
+      errors.push('GOSAC_BASE_URL e GOSAC_API_KEY são obrigatórios com CHATBOT_ENABLED=true');
+    }
+    if (isProduction && !readString(config, 'GOSAC_WEBHOOK_SECRET')) {
+      errors.push('GOSAC_WEBHOOK_SECRET é obrigatório em produção com CHATBOT_ENABLED=true');
+    }
+    if (readString(config, 'CHATBOT_PONTTA_ENABLED') === 'true' && !readString(config, 'CHATBOT_MEASURE_OWNER_ID')) {
+      errors.push('CHATBOT_MEASURE_OWNER_ID (responsável pela agenda de medição no Pontta) é obrigatório com CHATBOT_PONTTA_ENABLED=true');
+    }
   }
 
   if (errors.length > 0) {
@@ -94,7 +144,7 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     PORT: readNumber(config, 'PORT', 3000),
     FRONTEND_URL: readString(config, 'FRONTEND_URL', 'http://localhost:4200')!,
     JWT_SECRET: jwtSecret!,
-    JWT_EXPIRES_IN: readString(config, 'JWT_EXPIRES_IN', '7d')!,
+    JWT_EXPIRES_IN: readString(config, 'JWT_EXPIRES_IN', '12h')!,
     ENCRYPTION_KEY: encryptionKey!,
     DB_HOST: readString(config, 'DB_HOST', 'localhost')!,
     DB_PORT: readNumber(config, 'DB_PORT', 5432),
@@ -111,6 +161,39 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     PONTTA_PASSWORD: ponttaPassword!,
     GOSAC_BASE_URL: readString(config, 'GOSAC_BASE_URL'),
     GOSAC_API_KEY: readString(config, 'GOSAC_API_KEY'),
+    GOSAC_WEBHOOK_SECRET: readString(config, 'GOSAC_WEBHOOK_SECRET'),
+    MASTER_SETUP_TOKEN: readString(config, 'MASTER_SETUP_TOKEN'),
+    DB_SSL_REJECT_UNAUTHORIZED: readString(config, 'DB_SSL_REJECT_UNAUTHORIZED') === 'true',
+    DB_SYNCHRONIZE: readString(config, 'DB_SYNCHRONIZE') === 'true',
+    OPENAI_API_KEY: readString(config, 'OPENAI_API_KEY'),
+    OPENAI_MODEL: readString(config, 'OPENAI_MODEL', 'gpt-4o-mini')!,
+    // Modelos de raciocínio (o-series/gpt-5) não aceitam temperature: deixe OPENAI_TEMPERATURE vazio para omitir.
+    OPENAI_TEMPERATURE: config['OPENAI_TEMPERATURE'] === '' ? undefined : readNumber(config, 'OPENAI_TEMPERATURE', 0),
+    OPENAI_TIMEOUT_MS: readNumber(config, 'OPENAI_TIMEOUT_MS', 12000),
+    CHATBOT_ENABLED: chatbotEnabled,
+    CHATBOT_AI_ENABLED: aiEnabled,
+    // Integração do chatbot com o Pontta (negócio + agenda de medição). Desligada por padrão.
+    CHATBOT_PONTTA_ENABLED: readString(config, 'CHATBOT_PONTTA_ENABLED') === 'true',
+    CHATBOT_DEBOUNCE_MS: readNumber(config, 'CHATBOT_DEBOUNCE_MS', 3000),
+    CHATBOT_MAX_INVALID: readNumber(config, 'CHATBOT_MAX_INVALID', 3),
+    CHATBOT_MAX_OFF_TOPIC: readNumber(config, 'CHATBOT_MAX_OFF_TOPIC', 3),
+    // Mensagens com voz natural (agente Redator). Desligue para usar sempre os textos padrão.
+    CHATBOT_HUMANIZE: readString(config, 'CHATBOT_HUMANIZE') !== 'false',
+    // Pequena pausa de "digitando" antes de cada bolha (parece conversa de pessoa).
+    CHATBOT_TYPING_DELAY: readString(config, 'CHATBOT_TYPING_DELAY') !== 'false',
+    CHATBOT_WRITER_DAILY_LIMIT: readNumber(config, 'CHATBOT_WRITER_DAILY_LIMIT', 60),
+    CHATBOT_AI_DAILY_LIMIT: readNumber(config, 'CHATBOT_AI_DAILY_LIMIT', 40),
+    CHATBOT_HUMAN_IDLE_MINUTES: readNumber(config, 'CHATBOT_HUMAN_IDLE_MINUTES', 60),
+    CHATBOT_MEASURE_OWNER_ID: readString(config, 'CHATBOT_MEASURE_OWNER_ID'),
+    CHATBOT_DEAL_WORKFLOW_ID: readString(config, 'CHATBOT_DEAL_WORKFLOW_ID'),
+    CHATBOT_DEAL_FALLBACK_EMAIL: readString(config, 'CHATBOT_DEAL_FALLBACK_EMAIL'),
+    CHATBOT_DRIVE_ROOT_FOLDER_ID: readString(config, 'CHATBOT_DRIVE_ROOT_FOLDER_ID'),
+    CHATBOT_FALLBACK_GOSAC_USER_ID: readString(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID')
+      ? readNumber(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID', 0)
+      : undefined,
+    CHATBOT_FALLBACK_GOSAC_QUEUE_ID: readString(config, 'CHATBOT_FALLBACK_GOSAC_QUEUE_ID')
+      ? readNumber(config, 'CHATBOT_FALLBACK_GOSAC_QUEUE_ID', 0)
+      : undefined,
     SMTP_HOST: readString(config, 'SMTP_HOST'),
     SMTP_PORT: readString(config, 'SMTP_PORT'),
     SMTP_USER: readString(config, 'SMTP_USER'),

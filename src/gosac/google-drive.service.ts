@@ -88,7 +88,7 @@ export class GoogleDriveService {
         );
     }
 
-    private async getDriveClient(): Promise<drive_v3.Drive> {
+    async getDriveClient(): Promise<drive_v3.Drive> {
         const { credentials, source } = this.loadCredentials();
 
         const clientEmail = credentials.client_email;
@@ -207,6 +207,86 @@ export class GoogleDriveService {
 
         this.logger.log(`PDF enviado ao Drive: "${filename}" (id: ${response.data.id})`);
         return response.data.id!;
+    }
+
+    // ===== Operações genéricas usadas pelo chatbot =====
+
+    private escapeQuery(value: string): string {
+        return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    /** Procura uma pasta pelo nome (exato) dentro do pai. Devolve o ID ou null. */
+    async findFolder(parentId: string, name: string, mode: 'equals' | 'startsWith' = 'equals'): Promise<string | null> {
+        const drive = await this.getDriveClient();
+        const op = mode === 'equals' ? `name = '${this.escapeQuery(name)}'` : `name contains '${this.escapeQuery(name)}'`;
+        const list = await drive.files.list({
+            q: `mimeType='application/vnd.google-apps.folder' and ${op} and '${parentId}' in parents and trashed=false`,
+            fields: 'files(id, name)',
+            pageSize: 20,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+        });
+        const files = list.data.files ?? [];
+        const found = mode === 'equals' ? files[0] : files.find((f) => f.name?.startsWith(name));
+        return found?.id ?? null;
+    }
+
+    /** Garante a existência de cada pasta do caminho (criando as que faltam). Devolve o ID da última. */
+    async ensureFolderPath(rootId: string, names: string[]): Promise<string> {
+        const drive = await this.getDriveClient();
+        let parent = rootId;
+        for (const name of names) {
+            const existing = await this.findFolder(parent, name);
+            if (existing) {
+                parent = existing;
+                continue;
+            }
+            const created = await drive.files.create({
+                requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] },
+                fields: 'id',
+                supportsAllDrives: true,
+            });
+            parent = created.data.id!;
+            this.logger.log(`Pasta criada no Drive: "${name}"`);
+        }
+        return parent;
+    }
+
+    /** Envia um arquivo qualquer para a pasta. */
+    async uploadBuffer(buffer: Buffer, filename: string, mimeType: string, folderId: string): Promise<string> {
+        const drive = await this.getDriveClient();
+        const response = await drive.files.create({
+            requestBody: { name: filename, parents: [folderId] },
+            media: { mimeType, body: Readable.from(buffer) },
+            fields: 'id',
+            supportsAllDrives: true,
+        });
+        return response.data.id!;
+    }
+
+    /** Cria ou substitui um arquivo de texto (mesmo nome) dentro da pasta. */
+    async upsertTextFile(folderId: string, filename: string, content: string): Promise<string> {
+        const drive = await this.getDriveClient();
+        const existing = await drive.files.list({
+            q: `name = '${this.escapeQuery(filename)}' and '${folderId}' in parents and trashed=false`,
+            fields: 'files(id)',
+            pageSize: 1,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+        });
+        const media = { mimeType: 'text/plain', body: Readable.from(Buffer.from(content, 'utf8')) };
+        const id = existing.data.files?.[0]?.id;
+        if (id) {
+            await drive.files.update({ fileId: id, media, supportsAllDrives: true });
+            return id;
+        }
+        const created = await drive.files.create({
+            requestBody: { name: filename, parents: [folderId] },
+            media,
+            fields: 'id',
+            supportsAllDrives: true,
+        });
+        return created.data.id!;
     }
 
     /**

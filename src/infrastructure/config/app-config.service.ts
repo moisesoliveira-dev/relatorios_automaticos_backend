@@ -70,6 +70,55 @@ export class AppConfigService {
     };
   }
 
+  get gosacWebhookSecret(): string | undefined {
+    return this.env.GOSAC_WEBHOOK_SECRET;
+  }
+
+  get masterSetupToken(): string | undefined {
+    return this.env.MASTER_SETUP_TOKEN;
+  }
+
+  get dbSslRejectUnauthorized(): boolean {
+    return this.env.DB_SSL_REJECT_UNAUTHORIZED;
+  }
+
+  get dbSynchronize(): boolean {
+    return this.env.DB_SYNCHRONIZE;
+  }
+
+  get chatbot() {
+    const e = this.env;
+    return {
+      enabled: e.CHATBOT_ENABLED,
+      aiEnabled: e.CHATBOT_AI_ENABLED,
+      ponttaEnabled: e.CHATBOT_PONTTA_ENABLED,
+      debounceMs: e.CHATBOT_DEBOUNCE_MS,
+      maxInvalid: e.CHATBOT_MAX_INVALID,
+      maxOffTopic: e.CHATBOT_MAX_OFF_TOPIC,
+      humanize: e.CHATBOT_HUMANIZE,
+      typingDelay: e.CHATBOT_TYPING_DELAY,
+      writerDailyLimit: e.CHATBOT_WRITER_DAILY_LIMIT,
+      aiDailyLimit: e.CHATBOT_AI_DAILY_LIMIT,
+      humanIdleMinutes: e.CHATBOT_HUMAN_IDLE_MINUTES,
+      measureOwnerId: e.CHATBOT_MEASURE_OWNER_ID,
+      dealWorkflowId: e.CHATBOT_DEAL_WORKFLOW_ID,
+      dealFallbackEmail: e.CHATBOT_DEAL_FALLBACK_EMAIL,
+      driveRootFolderId: e.CHATBOT_DRIVE_ROOT_FOLDER_ID,
+      fallbackGosacUserId: e.CHATBOT_FALLBACK_GOSAC_USER_ID,
+      fallbackGosacQueueId: e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID,
+    };
+  }
+
+  get openai() {
+    const e = this.env;
+    return {
+      apiKey: e.OPENAI_API_KEY,
+      model: e.OPENAI_MODEL,
+      temperature: e.OPENAI_TEMPERATURE,
+      timeoutMs: e.OPENAI_TIMEOUT_MS,
+    };
+  }
+
   get rotationDatabaseUrl(): string | undefined {
     return this.env.ROTATION_DATABASE_URL;
   }

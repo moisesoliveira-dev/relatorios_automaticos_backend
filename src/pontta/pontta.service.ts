@@ -775,4 +775,91 @@ export class PonttaService {
     async searchSchedulesProfile(token: string, query: string, size = 25): Promise<any[]> {
         return this.searchUsers(token, query, size);
     }
+
+    // ===== Agenda e negócios (usados pelo chatbot) =====
+
+    private authHeaders(token: string) {
+        return {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            Businessunit: this.businessUnitId,
+        };
+    }
+
+    /** Compromissos de um responsável entre duas datas (ISO sem fuso, como o Pontta espera). */
+    async getSchedules(
+        token: string,
+        startIso: string,
+        endIso: string,
+        ownerId: string,
+    ): Promise<Array<{ start: string; end: string }>> {
+        try {
+            const response = await axios.get(`${this.apiUrl}/schedules`, {
+                params: { start: startIso, end: endIso, owner: ownerId },
+                headers: this.authHeaders(token),
+                timeout: 15000,
+            });
+            const data = response.data;
+            return Array.isArray(data) ? data : Array.isArray(data?.content) ? data.content : [];
+        } catch (error) {
+            throw new HttpException(
+                `Falha ao consultar agenda no Pontta: ${error.response?.data?.message || error.message}`,
+                HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /** Cria um compromisso (ex.: medição). `start`/`end` em UTC ISO com "Z". */
+    async createSchedule(
+        token: string,
+        data: { title: string; note: string; ownerId: string; start: string; end: string },
+    ): Promise<void> {
+        try {
+            await axios.post(
+                `${this.apiUrl}/schedules`,
+                { title: data.title, note: data.note, location: '', ownerId: data.ownerId, start: data.start, end: data.end },
+                { headers: this.authHeaders(token), timeout: 15000 },
+            );
+        } catch (error) {
+            throw new HttpException(
+                `Falha ao criar compromisso no Pontta: ${error.response?.data?.message || error.message}`,
+                HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
+
+    /** Cria o negócio (atendimento) no funil do Pontta. Devolve o UUID quando o Pontta o informa. */
+    async createDeal(
+        token: string,
+        data: { title: string; responsibleId: string; workflowId: string; phone?: string | null; email?: string | null },
+    ): Promise<string | null> {
+        try {
+            const response = await axios.post(
+                `${this.apiUrl}/deals`,
+                {
+                    id: null,
+                    title: data.title,
+                    name: null,
+                    email: data.email ?? null,
+                    phone: data.phone ?? null,
+                    responsible: data.responsibleId,
+                    workflowId: data.workflowId,
+                    customer: null,
+                    contactId: null,
+                    contactType: null,
+                    contactInternalId: null,
+                    tagIds: [],
+                    partnerIds: [],
+                    custom: {},
+                },
+                { headers: this.authHeaders(token), timeout: 15000 },
+            );
+            return (response.headers?.['x-pontta-params'] as string) || (typeof response.data === 'string' ? response.data : null);
+        } catch (error) {
+            throw new HttpException(
+                `Falha ao criar negócio no Pontta: ${error.response?.data?.message || error.message}`,
+                HttpStatus.BAD_GATEWAY,
+            );
+        }
+    }
 }

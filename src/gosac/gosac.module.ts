@@ -9,9 +9,10 @@ import { GosacSalesOrderLink } from './entities/gosac-sales-order-link.entity';
 import { PonttaModule } from '../pontta/pontta.module';
 import { SettingsModule } from '../settings/settings.module';
 import { MontadorPdfService } from './montador-pdf.service';
-import { GoogleDriveService } from './google-drive.service';
+import { DriveModule } from '../drive/drive.module';
 import { PcpScheduleService } from './pcp-schedule.service';
 import { PcpContextModule } from '../contexts/pcp/pcp.context.module';
+import { ChatbotModule } from '../chatbot/chatbot.module';
 
 @Module({
     imports: [
@@ -19,9 +20,11 @@ import { PcpContextModule } from '../contexts/pcp/pcp.context.module';
         PonttaModule,
         SettingsModule,
         PcpContextModule,
+        DriveModule,
+        ChatbotModule,
     ],
     controllers: [GosacController, GosacWebhookController],
-    providers: [GosacService, MontadorPdfService, GoogleDriveService, PcpScheduleService],
-    exports: [GosacService, GoogleDriveService],
+    providers: [GosacService, MontadorPdfService, PcpScheduleService],
+    exports: [GosacService, DriveModule],
 })
 export class GosacModule { }
