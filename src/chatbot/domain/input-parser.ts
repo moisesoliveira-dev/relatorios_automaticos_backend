@@ -10,7 +10,7 @@ export function normalizeText(raw: string | null | undefined): string {
     .trim();
 }
 
-const OK_RE =
+export const OK_RE =
   /^(ok|okay|okk+|oks|t[áa] ok|blz|beleza|certo|feito|pronto|enviei|j[áa] enviei|finalizei|finalizado|👍)[.!]*$/i;
 
 const NOT_A_NAME = new Set([

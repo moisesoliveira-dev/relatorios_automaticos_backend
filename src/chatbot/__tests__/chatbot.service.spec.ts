@@ -165,6 +165,7 @@ describe('ChatbotService — conversa completa', () => {
       expect.objectContaining({ nome: 'João da Silva' }),
       'redirecionando_com_nome',
       false,
+      undefined,
     );
     const conv = t.repo.rows[0];
     expect(conv).toMatchObject({
@@ -349,6 +350,7 @@ describe('ChatbotService — situações do dia a dia', () => {
       expect.anything(),
       'redirecionando',
       true,
+      undefined,
     );
   });
 

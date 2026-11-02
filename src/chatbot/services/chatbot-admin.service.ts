@@ -29,6 +29,7 @@ const STEPS: Step[] = [
   'CONFIRMA_NOME',
   'ENVIO_ARQUIVOS',
   'CATEGORIAS',
+  'CUSTOM',
   'CASA_AP',
   'PLANTA_ACHOU',
   'AGENDAR',

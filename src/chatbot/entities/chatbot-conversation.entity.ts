@@ -1,3 +1,4 @@
+import type { CustomState } from '../domain/custom-flow';
 import {
   Column,
   CreateDateColumn,
@@ -72,6 +73,9 @@ export class ChatbotConversation {
 
   @Column({ type: 'jsonb', nullable: true })
   slots: SlotOption[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  custom: CustomState | null;
 
   @Column({ name: 'em_atendimento', type: 'boolean', default: false })
   emAtendimento: boolean;

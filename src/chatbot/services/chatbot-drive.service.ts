@@ -111,4 +111,22 @@ export class ChatbotDriveService {
     const text = `Cliente: ${safeName(nome)}\nAmbientes de interesse: ${lista}.\nAtualizado em: ${new Date().toISOString()}\n`;
     await this.drive.upsertTextFile(folderId, 'Preferências.txt', text);
   }
+
+  /** Grava as respostas coletadas por um fluxo personalizado na pasta do cliente. */
+  async saveAnswers(
+    folderId: string,
+    nome: string,
+    titulo: string,
+    itens: Array<{ rotulo: string; valor: string }>,
+  ): Promise<void> {
+    const linhas = itens.map(
+      (i) => `${safeName(i.rotulo)}: ${i.valor.replace(/\s+/g, ' ')}`,
+    );
+    const text = `Cliente: ${safeName(nome)}\nFluxo: ${safeName(titulo)}\n${linhas.join('\n')}\nAtualizado em: ${new Date().toISOString()}\n`;
+    await this.drive.upsertTextFile(
+      folderId,
+      `${safeName(titulo)} - Respostas.txt`,
+      text,
+    );
+  }
 }

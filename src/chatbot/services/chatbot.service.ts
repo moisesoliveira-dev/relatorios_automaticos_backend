@@ -13,6 +13,8 @@ import {
   parseAllowedHosts,
 } from '../../gosac/media-url.util';
 import { MESSAGES } from '../domain/chatbot.messages';
+import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
+import { CustomResult, startFlow, stepFlow } from '../domain/custom-flow';
 import { decide, restartDecision } from '../domain/chatbot.flow';
 import { parseInput } from '../domain/input-parser';
 import { renderSlotList } from '../domain/scheduling';
@@ -365,6 +367,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       invalidCount: conv.invalidCount,
       slots: conv.slots,
       offTopicCount: conv.offTopicCount ?? 0,
+      custom: conv.custom ?? null,
     };
   }
 
@@ -482,10 +485,40 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     // 6) Interpretação → regras
     const state = this.flowOf(conv);
     const hasFile = batch.files.length > 0;
+
+    // 6a) Dentro de um fluxo personalizado: o motor do fluxo decide (sem IA)
+    if (state.step === 'CUSTOM') {
+      if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
+      const flow = state.custom ? fluxoPorId(state.custom.flowId) : undefined;
+      if (!flow || !flow.ativo || !state.custom) {
+        // O fluxo foi desativado/removido no meio da conversa: volta ao menu.
+        return this.apply(conv, restartDecision());
+      }
+      const r = stepFlow(
+        flow,
+        state.custom,
+        { text, hasFile },
+        {
+          maxInvalid: this.appConfig.chatbot.maxInvalid,
+        },
+      );
+      return this.apply(conv, this.customDecision(conv, r));
+    }
+
     let input: FlowInput | null = parseInput(state, text, hasFile);
     if (input === null) input = await this.interpretWithAi(conv, state, text);
 
     if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
+
+    // 6b) Opção do menu que abre um fluxo personalizado
+    if (state.step === 'MENU' && input.kind === 'option') {
+      const flow = fluxoDaOpcao(input.value);
+      if (flow)
+        return this.apply(
+          conv,
+          this.customDecision(conv, startFlow(flow, conv.nome)),
+        );
+    }
 
     const decision = decide(state, input, {
       maxInvalid: this.appConfig.chatbot.maxInvalid,
@@ -493,6 +526,38 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       maxOffTopic: this.appConfig.chatbot.maxOffTopic,
     });
     await this.apply(conv, decision);
+  }
+
+  /** Converte o resultado do motor de fluxo personalizado numa Decision do motor principal. */
+  private customDecision(conv: ChatbotConversation, r: CustomResult): Decision {
+    const effects: Effect[] = r.effects.map((e) =>
+      e.type === 'handoff'
+        ? {
+            type: 'handoff',
+            mensagem: e.comNome ? 'redirecionando_com_nome' : 'redirecionando',
+            texto: e.texto,
+          }
+        : e,
+    );
+    const nome = r.nome ? { nome: r.nome } : {};
+    if (r.state)
+      return {
+        patch: { step: 'CUSTOM', custom: r.state, invalidCount: 0, ...nome },
+        replies: r.replies,
+        effects,
+      };
+    if (r.saiu === 'encaminhado')
+      return { patch: { custom: null, ...nome }, replies: r.replies, effects };
+    // Voltou ao menu. Se houve ações (ex.: criar pasta), o nome precisa sobreviver até elas rodarem.
+    const d = restartDecision();
+    return {
+      patch: {
+        ...d.patch,
+        ...(effects.length ? { nome: r.nome ?? conv.nome ?? null } : {}),
+      },
+      replies: [...r.replies, ...d.replies],
+      effects,
+    };
   }
 
   private remember(conv: ChatbotConversation, msg: Inbound): void {
@@ -554,11 +619,28 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       case 'agendar':
         return this.bookSlot(conv, effect.slotIndex);
 
+      case 'salvar_respostas':
+        try {
+          if (conv.driveFolderId && conv.nome)
+            await this.drive.saveAnswers(
+              conv.driveFolderId,
+              conv.nome,
+              effect.titulo,
+              effect.itens,
+            );
+        } catch (error) {
+          this.logger.error(
+            `Respostas não salvas (ticket ${conv.ticketId}): ${(error as Error).message}`,
+          );
+        }
+        return;
+
       case 'handoff':
         return this.finishHandoff(
           conv,
           effect.mensagem,
           effect.reutilizarAtendente,
+          effect.texto,
         );
     }
   }
@@ -611,8 +693,9 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     conv: ChatbotConversation,
     kind: Parameters<ChatbotHandoffService['execute']>[1],
     reutilizar = false,
+    texto?: string,
   ): Promise<void> {
-    const result = await this.handoff.execute(conv, kind, reutilizar);
+    const result = await this.handoff.execute(conv, kind, reutilizar, texto);
     conv.step = 'HUMANO';
     conv.emAtendimento = true;
     conv.finalizouTriagem = true;
@@ -620,6 +703,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     conv.filaId = result.filaId ?? conv.filaId;
     conv.handoffError = result.error;
     conv.slots = null;
+    conv.custom = null;
     conv.history = []; // minimiza dados guardados depois da triagem
     await this.repo.save(conv);
   }

@@ -45,6 +45,7 @@ export class ChatbotHandoffService {
     conv: ChatbotConversation,
     kind: HandoffMessage,
     reutilizar = false,
+    texto?: string,
   ): Promise<HandoffResult> {
     const cfg = this.appConfig.chatbot;
     const errors: string[] = [];
@@ -78,7 +79,7 @@ export class ChatbotHandoffService {
     try {
       // Passa pelo Redator como as demais mensagens (cai no texto original se a IA falhar)
       const bubbles = await this.humanizer.compose(conv, [
-        this.textFor(kind, conv.nome),
+        texto ?? this.textFor(kind, conv.nome),
       ]);
       await this.messenger.sendTexts(conv.ticketId, bubbles);
     } catch (error) {

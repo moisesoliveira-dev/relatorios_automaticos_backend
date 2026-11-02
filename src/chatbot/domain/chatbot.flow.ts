@@ -19,9 +19,14 @@ import {
 export function validOptions(state: FlowState): number[] {
   switch (state.step) {
     case 'MENU':
-      return [1, 2, 3, 4, 5].filter(
-        (n) => !runtimeContent.menuDesativado.includes(n),
-      );
+      return [
+        ...[1, 2, 3, 4, 5].filter(
+          (n) => !runtimeContent.menuDesativado.includes(n),
+        ),
+        ...runtimeContent.fluxos
+          .filter((f) => f.ativo && f.menuOpcao)
+          .map((f) => f.menuOpcao as number),
+      ];
     case 'CONFIRMA_NOME':
     case 'CASA_AP':
     case 'PLANTA_ACHOU':

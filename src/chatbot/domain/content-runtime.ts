@@ -3,6 +3,8 @@
  * o guia de tom/instruções para os agentes e as opções do menu desativadas.
  * Estado de processo, recarregado a cada publicação e a cada 30 s (ver ChatbotContentService).
  */
+import type { CustomFlow } from './custom-flow';
+
 export const TONES = {
   padrao: { label: 'Padrão da Vera', prompt: '' },
   acolhedor: {
@@ -32,10 +34,19 @@ export interface Guidance {
 export const runtimeContent: {
   guidance: Guidance;
   menuDesativado: number[];
+  /** Fluxos personalizados ativos (publicados). */
+  fluxos: CustomFlow[];
 } = {
   guidance: { tone: 'padrao', instructions: '' },
   menuDesativado: [],
+  fluxos: [],
 };
+
+export const fluxoDaOpcao = (n: number): CustomFlow | undefined =>
+  runtimeContent.fluxos.find((f) => f.ativo && f.menuOpcao === n);
+
+export const fluxoPorId = (id: string): CustomFlow | undefined =>
+  runtimeContent.fluxos.find((f) => f.id === id);
 
 /** Trecho anexado ao prompt dos agentes que escrevem para o cliente. Nunca afrouxa as regras fixas. */
 export function guidanceBlock(): string {

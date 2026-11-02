@@ -119,6 +119,12 @@ export class ChatbotController {
     return this.content.discardDraft();
   }
 
+  @Post('content/flows/preview')
+  @SkipThrottle()
+  previewFlow(@Body() body: { fluxo: unknown; estado: unknown; texto?: string }) {
+    return this.content.previewFlow(body as never);
+  }
+
   @Post('content/publish')
   publish(@Req() req: { user?: { email?: string } }) {
     return this.content.publish(this.who(req));

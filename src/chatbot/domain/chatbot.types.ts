@@ -1,3 +1,5 @@
+import type { CustomState } from './custom-flow';
+
 export type Trilha = 'projeto' | 'planta' | 'semNada' | 'boleto' | 'loja';
 
 export type Step =
@@ -12,6 +14,7 @@ export type Step =
   | 'HORARIO'
   | 'VISITA'
   | 'RECONHECIMENTO'
+  | 'CUSTOM'
   | 'HUMANO';
 
 export interface SlotOption {
@@ -35,6 +38,8 @@ export interface FlowState {
   slots: SlotOption[] | null;
   /** Reincidências de fora de escopo. Fica fora do INITIAL: recomeçar a conversa não zera as advertências. */
   offTopicCount?: number;
+  /** Fluxo personalizado em andamento (step === 'CUSTOM'). */
+  custom?: CustomState | null;
 }
 
 export const INITIAL_FLOW_STATE: FlowState = {
@@ -47,6 +52,7 @@ export const INITIAL_FLOW_STATE: FlowState = {
   arquivos: 0,
   invalidCount: 0,
   slots: null,
+  custom: null,
 };
 
 /** Entrada já interpretada (por regra determinística ou pela IA). */
@@ -73,9 +79,16 @@ export type Effect =
   | { type: 'oferecer_horarios' }
   | { type: 'agendar'; slotIndex: number }
   | {
+      type: 'salvar_respostas';
+      titulo: string;
+      itens: Array<{ rotulo: string; valor: string }>;
+    }
+  | {
       type: 'handoff';
       mensagem: HandoffMessage;
       reutilizarAtendente?: boolean;
+      /** Texto próprio de um fluxo personalizado, no lugar da mensagem padrão de encaminhamento. */
+      texto?: string;
     };
 
 export interface Decision {

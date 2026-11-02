@@ -22,6 +22,17 @@ import {
 import { setExtraAllowedNumbers } from '../domain/free-reply.guard';
 import { refreshMessageMatchers, SPECS } from '../domain/message-specs';
 import { runtimeContent, TONES, ToneKey } from '../domain/content-runtime';
+import {
+  checkFlow,
+  CustomFlow,
+  CustomState,
+  FlowNode,
+  slug,
+  startFlow,
+  stepFlow,
+  TOOLS,
+} from '../domain/custom-flow';
+import { AppConfigService } from '../../infrastructure/config/app-config.service';
 
 const CATEGORY = 'chatbot_content';
 const K_PUBLISHED = 'CHATBOT_CONTENT_PUBLISHED';
@@ -42,6 +53,8 @@ export interface ContentDoc {
   guidance: { tone: ToneKey; instructions: string };
   /** Opções do menu inicial que não devem mais ser aceitas (4 e/ou 5). */
   menuDesativado: number[];
+  /** Fluxos de atendimento criados pela tela (além do fluxo padrão). */
+  fluxos: CustomFlow[];
 }
 
 interface Stored {
@@ -56,6 +69,7 @@ export const emptyDoc = (): ContentDoc => ({
   categorias: {},
   guidance: { tone: 'padrao', instructions: '' },
   menuDesativado: [],
+  fluxos: [],
 });
 
 const placeholdersOf = (t: string) =>
@@ -69,7 +83,10 @@ export class ChatbotContentService implements OnModuleInit {
   private readonly logger = new Logger(ChatbotContentService.name);
   private appliedJson = '';
 
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly appConfig?: AppConfigService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.reload();
@@ -112,12 +129,17 @@ export class ChatbotContentService implements OnModuleInit {
       draft: draft?.doc ?? null,
       draftAt: draft?.at ?? null,
       hasPrevious: !!previous,
+      problemas: draft ? this.problemsOf(draft.doc) : [],
       defaults: {
         messages: { ...DEFAULT_MESSAGES },
         kb: DEFAULT_KB,
         categorias: { ...DEFAULT_CATEGORIAS },
       },
       specs,
+      ferramentas: TOOLS.map((t) => ({
+        ...t,
+        disponivel: !!this.appConfig?.chatbot.driveRootFolderId,
+      })),
       tones: Object.entries(TONES).map(([key, t]) => ({
         key,
         label: t.label,
@@ -128,7 +150,7 @@ export class ChatbotContentService implements OnModuleInit {
   // ───────────────────────── escrita ─────────────────────────
 
   async saveDraft(input: unknown, by: string | null) {
-    const doc = this.validate(input);
+    const doc = this.validate(input, false);
     await this.write(K_DRAFT, { doc, at: new Date().toISOString(), by });
     return this.get();
   }
@@ -168,7 +190,21 @@ export class ChatbotContentService implements OnModuleInit {
 
   // ───────────────────────── validação ─────────────────────────
 
-  validate(input: unknown): ContentDoc {
+  /** O que ainda impede de publicar este rascunho. */
+  private problemsOf(doc: ContentDoc): string[] {
+    try {
+      this.validate(doc);
+      return [];
+    } catch (e) {
+      const m = (e as BadRequestException).getResponse() as {
+        message?: string | string[];
+      };
+      return Array.isArray(m?.message) ? m.message : [String(m?.message ?? '')];
+    }
+  }
+
+  /** `strictFlows=false` (rascunho) aceita fluxos incompletos; publicar exige tudo válido. */
+  validate(input: unknown, strictFlows = true): ContentDoc {
     if (!input || typeof input !== 'object')
       throw new BadRequestException('Conteúdo inválido.');
     const raw = input as Partial<ContentDoc>;
@@ -256,6 +292,8 @@ export class ChatbotContentService implements OnModuleInit {
       }
     }
 
+    doc.fluxos = this.validateFlows(raw.fluxos, strictFlows ? errors : []);
+
     const g = raw.guidance;
     if (g) {
       const tone = (g.tone ?? 'padrao') as ToneKey;
@@ -268,6 +306,123 @@ export class ChatbotContentService implements OnModuleInit {
 
     if (errors.length) throw new BadRequestException(errors);
     return doc;
+  }
+
+  private validateFlows(input: unknown, errors: string[]): CustomFlow[] {
+    if (input === undefined || input === null) return [];
+    if (!Array.isArray(input)) {
+      errors.push('Fluxos inválidos.');
+      return [];
+    }
+    if (input.length > 10) errors.push('São permitidos no máximo 10 fluxos.');
+    const ids = new Set<string>();
+    const opcoes = new Set<number>();
+    const out: CustomFlow[] = [];
+    input.slice(0, 10).forEach((raw: Partial<CustomFlow>, i) => {
+      const nome = String(raw?.nome ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const label = nome || `Fluxo ${i + 1}`;
+      if (nome.length < 2 || nome.length > 40)
+        errors.push(`${label}: o nome precisa ter de 2 a 40 caracteres.`);
+      let id = slug(String(raw?.id ?? nome)).slice(0, 30) || `fluxo_${i + 1}`;
+      while (ids.has(id)) id = `${id}_x`.slice(0, 30);
+      ids.add(id);
+      const ativo = raw?.ativo !== false;
+      const opcao = raw?.menuOpcao == null ? null : Number(raw.menuOpcao);
+      if (ativo) {
+        if (
+          opcao === null ||
+          !Number.isInteger(opcao) ||
+          opcao < 6 ||
+          opcao > 9
+        )
+          errors.push(
+            `${label}: escolha a opção do menu (6 a 9) para ele aparecer ao cliente, ou deixe-o desativado.`,
+          );
+        else if (opcoes.has(opcao))
+          errors.push(
+            `${label}: a opção ${opcao} do menu já é usada por outro fluxo.`,
+          );
+        else opcoes.add(opcao);
+      }
+      const nos: FlowNode[] = (Array.isArray(raw?.nos) ? raw.nos : []).map(
+        (n: FlowNode) => ({
+          id: String(n?.id ?? '').slice(0, 30),
+          tipo: n?.tipo,
+          titulo: String(n?.titulo ?? '')
+            .trim()
+            .slice(0, 60),
+          texto:
+            n?.texto === undefined
+              ? undefined
+              : String(n.texto).replace(/\r/g, '').trim(),
+          proximo: n?.proximo ?? null,
+          opcoes: Array.isArray(n?.opcoes)
+            ? n.opcoes.map((o) => ({
+                rotulo: String(o?.rotulo ?? '').trim(),
+                proximo: o?.proximo ?? null,
+              }))
+            : undefined,
+          variavel: n?.variavel ? String(n.variavel) : undefined,
+          validacao:
+            n?.validacao === 'nome'
+              ? 'nome'
+              : n?.validacao === 'texto'
+                ? 'texto'
+                : undefined,
+          minimo: n?.minimo === undefined ? undefined : Number(n.minimo) || 0,
+          acao: n?.acao,
+        }),
+      );
+      const flow: CustomFlow = {
+        id,
+        nome,
+        descricao: raw?.descricao
+          ? String(raw.descricao).trim().slice(0, 200)
+          : undefined,
+        ativo,
+        menuOpcao: opcao,
+        nos,
+      };
+      for (const p of checkFlow(flow)) errors.push(`${label}: ${p}`);
+      out.push(flow);
+    });
+    return out;
+  }
+
+  /** Roda um fluxo (rascunho) sem enviar nada: devolve o que o bot diria e o novo estado. */
+  previewFlow(input: {
+    fluxo: unknown;
+    estado: CustomState | null;
+    texto?: string;
+  }) {
+    const errors: string[] = [];
+    const [flow] = this.validateFlows(
+      [{ ...(input.fluxo as object), ativo: false }],
+      errors,
+    );
+    if (errors.length) throw new BadRequestException(errors);
+    const r =
+      input.estado && input.estado.flowId === flow.id
+        ? stepFlow(
+            flow,
+            input.estado,
+            { text: input.texto ?? '', hasFile: false },
+            { maxInvalid: 3 },
+          )
+        : startFlow(flow, null);
+    const rotulos: Record<string, string> = {
+      criar_pasta: 'Drive: criar a pasta do cliente',
+      salvar_respostas: 'Drive: salvar as respostas',
+      handoff: 'Encaminhar a um atendente',
+    };
+    return {
+      estado: r.state,
+      mensagens: r.replies,
+      efeitos: r.effects.map((e) => rotulos[e.type]),
+      saiu: r.saiu,
+    };
   }
 
   private checkMessage(
@@ -323,6 +478,26 @@ export class ChatbotContentService implements OnModuleInit {
 
     runtimeContent.guidance = { ...doc.guidance };
     runtimeContent.menuDesativado = [...doc.menuDesativado];
+    runtimeContent.fluxos = doc.fluxos.map((f) =>
+      JSON.parse(JSON.stringify(f)),
+    );
+
+    // Fluxos ativos aparecem no menu inicial, depois da última opção numerada.
+    const extras = doc.fluxos
+      .filter((f) => f.ativo && f.menuOpcao)
+      .sort((a, b) => (a.menuOpcao ?? 0) - (b.menuOpcao ?? 0))
+      .map((f) => `*${f.menuOpcao}* - ${f.nome}`);
+    if (extras.length)
+      for (const key of ['menu_inicial', 'menu_reapresentado'] as const) {
+        const lines = messages[key].split('\n');
+        let last = -1;
+        lines.forEach((l, i) => {
+          if (/^\*\d{1,2}\* - /.test(l)) last = i;
+        });
+        if (last >= 0) lines.splice(last + 1, 0, ...extras);
+        else lines.push(...extras);
+        messages[key] = lines.join('\n');
+      }
     refreshMessageMatchers();
   }
 
