@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -9,25 +10,23 @@ import {
   Min,
 } from 'class-validator';
 
+/** Um passo da conversa simulada: a mensagem do cliente + o estado devolvido no passo anterior. */
 export class SimulateDto {
+  /** Vazio = o cliente acabou de chegar (mostra a primeira tela). */
+  @IsOptional()
   @IsString()
   @MaxLength(600)
-  text: string;
+  texto?: string;
 
+  /** Estado devolvido pela chamada anterior (opaco para o navegador). */
   @IsOptional()
-  @IsString()
-  @MaxLength(24)
-  step?: string;
+  @IsObject()
+  estado?: Record<string, unknown> | null;
 
+  /** Só no começo: iniciar a conversa numa etapa específica do fluxo padrão. */
   @IsOptional()
-  @IsString()
-  @MaxLength(16)
-  trilha?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  nome?: string | null;
+  @IsObject()
+  inicio?: { step?: string; trilha?: string | null; nome?: string | null };
 
   @IsOptional()
   @IsBoolean()

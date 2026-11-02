@@ -77,11 +77,7 @@ export class ChatbotController {
 
   @Post('simulate')
   simulate(@Body() body: SimulateDto) {
-    return this.admin.simulate({
-      ...body,
-      step: body.step as never,
-      trilha: body.trilha as never,
-    });
+    return this.admin.converse(body);
   }
 
   @Get('catalog')

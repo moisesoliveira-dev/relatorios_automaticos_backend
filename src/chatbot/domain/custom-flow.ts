@@ -1,4 +1,6 @@
 import { MESSAGES } from './chatbot.messages';
+import { restartDecision } from './chatbot.flow';
+import type { Decision, Effect } from './chatbot.types';
 import { OK_RE, normalizeText, validarNome } from './input-parser';
 
 /**
@@ -478,4 +480,51 @@ export function checkFlow(flow: CustomFlow): string[] {
     }
   }
   return [...new Set(e)];
+}
+
+/**
+ * Converte o resultado do motor de fluxo próprio numa Decision do motor principal
+ * (usada pelo atendimento real e pelo simulador, para os dois se comportarem igual).
+ */
+export function customToDecision(
+  r: CustomResult,
+  flowId: string,
+  nomeAtual: string | null,
+): Decision {
+  const effects: Effect[] = r.effects.map((e) =>
+    e.type === 'handoff'
+      ? {
+          type: 'handoff',
+          mensagem: e.comNome ? 'redirecionando_com_nome' : 'redirecionando',
+          texto: e.texto,
+          flowId,
+        }
+      : e,
+  );
+  const nome = r.nome ? { nome: r.nome } : {};
+  if (r.state)
+    return {
+      patch: { step: 'CUSTOM', custom: r.state, invalidCount: 0, ...nome },
+      replies: r.replies,
+      effects,
+      flowId,
+    };
+  if (r.saiu === 'encaminhado')
+    return {
+      patch: { custom: null, ...nome },
+      replies: r.replies,
+      effects,
+      flowId,
+    };
+  // Voltou ao menu. Se houve ações (ex.: criar pasta), o nome precisa sobreviver até elas rodarem.
+  const d = restartDecision();
+  return {
+    patch: {
+      ...d.patch,
+      ...(effects.length ? { nome: r.nome ?? nomeAtual ?? null } : {}),
+    },
+    replies: [...r.replies, ...d.replies],
+    effects,
+    flowId,
+  };
 }

@@ -208,7 +208,13 @@ describe('ChatbotAdminService', () => {
       resolve: jest.fn(async (c: any) => agentsImpl!(c)),
     } as any;
     return {
-      svc: new ChatbotAdminService(repo, appConfig, agents, {} as any),
+      svc: new ChatbotAdminService(
+        repo,
+        appConfig,
+        agents,
+        {} as any,
+        { enabled: false, compose: jest.fn() } as any,
+      ),
       repo,
       agents,
       store,
@@ -248,35 +254,67 @@ describe('ChatbotAdminService', () => {
     });
   });
 
-  it('simulador: número resolve por regras, sem chamar a IA e sem efeitos reais', async () => {
+  it('simulador: cliente que chega vê o menu; número resolve por regras, sem IA e sem efeitos reais', async () => {
     const t = make(conv(), () => ({ kind: 'invalid' }));
-    const r = await t.svc.simulate({ text: '1', step: 'MENU' });
-    expect(r).toMatchObject({ origem: 'regras', etapaDepois: 'NOME' });
+    const inicio = await t.svc.converse({});
+    expect(inicio.mensagens).toEqual([MESSAGES.menu_inicial]);
+    expect(inicio.estado.step).toBe('MENU');
+    const r = await t.svc.converse({
+      texto: '1',
+      estado: inicio.estado as never,
+    });
+    expect(r).toMatchObject({ origem: 'regras', terminou: false });
+    expect(r.estado).toMatchObject({ step: 'NOME', trilha: 'projeto' });
     expect(r.mensagens).toEqual([MESSAGES.pedir_nome]);
     expect(t.agents.resolve).not.toHaveBeenCalled();
   });
 
+  it('simulador: a conversa continua passo a passo e o encaminhamento a encerra', async () => {
+    const t = make();
+    let r: any = await t.svc.converse({
+      inicio: { step: 'ENVIO_ARQUIVOS', trilha: 'projeto', nome: 'Ana' },
+    });
+    expect(r.estado).toMatchObject({ step: 'ENVIO_ARQUIVOS', arquivos: 1 });
+    r = await t.svc.converse({ texto: 'ok', estado: r.estado });
+    expect(r.terminou).toBe(true);
+    expect(r.efeitos).toEqual(['Encaminharia a um atendente (rodízio)']);
+    await expect(
+      t.svc.converse({ texto: 'oi', estado: r.estado }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('simulador: texto livre usa a IA; fora de escopo recusa e reapresenta o passo', async () => {
     const t = make(conv(), () => ({ kind: 'fora_escopo', severidade: 'leve' }));
-    const r = await t.svc.simulate({
-      text: 'me conta uma piada',
-      step: 'CASA_AP',
+    const r = await t.svc.converse({
+      texto: 'me conta uma piada',
+      inicio: undefined,
+      estado: { step: 'CASA_AP', trilha: 'semNada' },
     });
     expect(r.origem).toBe('ia');
     expect(r.mensagens).toEqual([MESSAGES.fora_escopo, MESSAGES.casa_ou_ap]);
   });
 
-  it('simulador: sem IA disponível cai nas regras e avisa; texto vazio é recusado; etapa inválida vira MENU', async () => {
+  it('simulador: sem IA cai nas regras e avisa; texto vazio e estado adulterado são recusados', async () => {
     const t = make();
-    const r = await t.svc.simulate({
-      text: 'quero cozinha',
-      step: 'XYZ' as never,
+    const r = await t.svc.converse({
+      texto: 'quero cozinha',
+      estado: { step: 'MENU' },
     });
-    expect(r).toMatchObject({ origem: 'nenhuma', etapaAntes: 'MENU' });
+    expect(r).toMatchObject({ origem: 'nenhuma' });
     expect(r.mensagens).toEqual([MESSAGES.invalida_generica]);
-    await expect(t.svc.simulate({ text: '   ' })).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    expect(r.aviso).toMatch(/IA não está disponível/);
+    await expect(
+      t.svc.converse({ texto: '   ', estado: { step: 'MENU' } }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      t.svc.converse({ texto: '1', estado: { step: 'XYZ' } }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      t.svc.converse({
+        texto: '1',
+        estado: { step: 'CUSTOM', custom: { flowId: 'nao_existe' } },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('catálogo: mensagens com objetivo e pontos, base de conhecimento e categorias', () => {

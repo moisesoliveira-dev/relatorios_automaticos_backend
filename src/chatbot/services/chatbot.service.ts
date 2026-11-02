@@ -16,6 +16,7 @@ import { MESSAGES } from '../domain/chatbot.messages';
 import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
 import {
   CustomResult,
+  customToDecision,
   promptOf,
   startFlow,
   stepFlow,
@@ -568,42 +569,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     r: CustomResult,
     flowId: string,
   ): Decision {
-    const effects: Effect[] = r.effects.map((e) =>
-      e.type === 'handoff'
-        ? {
-            type: 'handoff',
-            mensagem: e.comNome ? 'redirecionando_com_nome' : 'redirecionando',
-            texto: e.texto,
-            flowId,
-          }
-        : e,
-    );
-    const nome = r.nome ? { nome: r.nome } : {};
-    if (r.state)
-      return {
-        patch: { step: 'CUSTOM', custom: r.state, invalidCount: 0, ...nome },
-        replies: r.replies,
-        effects,
-        flowId,
-      };
-    if (r.saiu === 'encaminhado')
-      return {
-        patch: { custom: null, ...nome },
-        replies: r.replies,
-        effects,
-        flowId,
-      };
-    // Voltou ao menu. Se houve ações (ex.: criar pasta), o nome precisa sobreviver até elas rodarem.
-    const d = restartDecision();
-    return {
-      patch: {
-        ...d.patch,
-        ...(effects.length ? { nome: r.nome ?? conv.nome ?? null } : {}),
-      },
-      replies: [...r.replies, ...d.replies],
-      effects,
-      flowId,
-    };
+    return customToDecision(r, flowId, conv.nome);
   }
 
   private remember(conv: ChatbotConversation, msg: Inbound): void {

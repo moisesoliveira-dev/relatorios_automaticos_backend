@@ -7,9 +7,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
-import { decide, restartDecision } from '../domain/chatbot.flow';
+import { decide, promptFor, restartDecision } from '../domain/chatbot.flow';
+import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
+import type { Guidance } from '../domain/content-runtime';
+import {
+  customToDecision,
+  promptOf,
+  startFlow,
+  stepFlow,
+} from '../domain/custom-flow';
+import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { CATEGORIAS_AMBIENTE, MESSAGES } from '../domain/chatbot.messages';
 import {
+  Decision,
   FlowInput,
   FlowState,
   INITIAL_FLOW_STATE,
@@ -53,12 +63,16 @@ const maskPhone = (n: string | null) =>
   n && n.length > 6 ? `${n.slice(0, 4)}•••••${n.slice(-3)}` : n;
 
 export interface SimulateInput {
-  text: string;
-  step?: Step;
-  trilha?: Trilha | null;
-  nome?: string | null;
+  texto?: string;
+  estado?: Record<string, unknown> | null;
+  inicio?: { step?: string; trilha?: string | null; nome?: string | null };
   usarIA?: boolean;
 }
+
+const asInt = (v: unknown, max = 1000) =>
+  Number.isInteger(v) ? Math.min(Math.max(v as number, 0), max) : 0;
+const asStr = (v: unknown, max: number) =>
+  typeof v === 'string' ? v.slice(0, max) : null;
 
 @Injectable()
 export class ChatbotAdminService {
@@ -68,6 +82,7 @@ export class ChatbotAdminService {
     private readonly appConfig: AppConfigService,
     private readonly agents: AgentOrchestrator,
     private readonly chatbot: ChatbotService,
+    private readonly humanizer: ChatbotHumanizerService,
   ) {}
 
   // ───────────────────────── visão geral ─────────────────────────
@@ -252,69 +267,232 @@ export class ChatbotAdminService {
 
   // ───────────────────────── simulador (sem efeitos) ─────────────────────────
 
-  async simulate(input: SimulateInput) {
-    const text = (input.text ?? '').toString().slice(0, 600);
-    if (!text.trim())
-      throw new BadRequestException('Digite uma mensagem para simular.');
-    const step: Step = STEPS.includes(input.step as Step)
-      ? (input.step as Step)
-      : 'MENU';
-    const trilha =
-      input.trilha && TRILHAS.includes(input.trilha)
-        ? input.trilha
-        : step === 'MENU'
-          ? null
-          : 'projeto';
-    const nome = input.nome?.toString().slice(0, 60) || null;
+  /** Reconstrói o estado vindo do navegador só com campos conhecidos e validados. */
+  private sanitizeState(raw: Record<string, unknown>): FlowState {
+    const step = STEPS.includes(raw.step as Step) ? (raw.step as Step) : null;
+    if (!step) throw new BadRequestException('Estado da simulação inválido.');
     const state: FlowState = {
       ...INITIAL_FLOW_STATE,
-      categorias: [],
       step,
-      trilha,
-      nome,
-      nomePendente: step === 'CONFIRMA_NOME' ? (nome ?? 'Cliente') : null,
-      arquivos: step === 'ENVIO_ARQUIVOS' ? 1 : 0,
-      slots: step === 'HORARIO' ? [] : null,
+      trilha: TRILHAS.includes(raw.trilha as Trilha)
+        ? (raw.trilha as Trilha)
+        : null,
+      nome: asStr(raw.nome, 60),
+      nomePendente: asStr(raw.nomePendente, 60),
+      local: raw.local === 'casa' || raw.local === 'ap' ? raw.local : null,
+      categorias: Array.isArray(raw.categorias)
+        ? raw.categorias.filter((n) => Number.isInteger(n)).slice(0, 10)
+        : [],
+      arquivos: asInt(raw.arquivos),
+      invalidCount: asInt(raw.invalidCount),
+      offTopicCount: asInt(raw.offTopicCount),
+      slots: null,
+      custom: null,
     };
-
-    let origem: 'regras' | 'ia' | 'nenhuma' = 'regras';
-    let entrada: FlowInput | null = parseInput(state, text, false);
-    if (entrada === null) {
-      if (input.usarIA !== false && this.agents.available) {
-        origem = 'ia';
-        entrada = await this.agents.resolve({
-          state,
-          message: text,
-          history: [],
-        });
-      } else {
-        origem = 'nenhuma';
-        entrada = { kind: 'invalid' };
-      }
+    if (step === 'CUSTOM') {
+      const c = raw.custom as Record<string, unknown> | null;
+      const flow =
+        c && typeof c.flowId === 'string' ? fluxoPorId(c.flowId) : undefined;
+      if (!c || !flow)
+        throw new BadRequestException(
+          'Este fluxo não está mais publicado: recomece o teste.',
+        );
+      const vars: Record<string, string> = {};
+      for (const [k, v] of Object.entries((c.vars as object) ?? {}).slice(
+        0,
+        40,
+      ))
+        if (typeof v === 'string') vars[k.slice(0, 40)] = v.slice(0, 300);
+      state.custom = {
+        flowId: flow.id,
+        nodeId: asStr(c.nodeId, 40) ?? '',
+        historico: Array.isArray(c.historico)
+          ? c.historico.filter((x) => typeof x === 'string').slice(-50)
+          : [],
+        vars,
+        arquivos: asInt(c.arquivos),
+        invalidos: asInt(c.invalidos),
+      };
     }
+    return state;
+  }
 
-    const d = decide(state, entrada, {
+  /**
+   * Um passo de uma conversa simulada, do jeito que o cliente viveria hoje (conteúdo PUBLICADO):
+   * menu → fluxo padrão ou fluxo próprio, com IA, tom do fluxo e dúvidas pela base do fluxo.
+   * Nada é enviado, gravado, criado no Drive nem encaminhado.
+   */
+  async converse(input: SimulateInput) {
+    const usarIA = input.usarIA !== false;
+    const texto = (input.texto ?? '').toString().slice(0, 600).trim();
+    const opts = {
       maxInvalid: this.appConfig.chatbot.maxInvalid,
       scheduling: this.appConfig.chatbot.ponttaEnabled,
       maxOffTopic: this.appConfig.chatbot.maxOffTopic,
-    });
-    const proxima = (d.patch.step as Step | undefined) ?? step;
+    };
 
-    return {
-      etapaAntes: step,
+    // Chegada do cliente (sem estado): mostra a primeira tela
+    if (!input.estado) {
+      const step = STEPS.includes(input.inicio?.step as Step)
+        ? (input.inicio!.step as Step)
+        : 'MENU';
+      if (step === 'CUSTOM' || step === 'HUMANO')
+        throw new BadRequestException('Escolha uma etapa do fluxo padrão.');
+      const nome = asStr(input.inicio?.nome, 60);
+      const state: FlowState = {
+        ...INITIAL_FLOW_STATE,
+        categorias: [],
+        step,
+        trilha: TRILHAS.includes(input.inicio?.trilha as Trilha)
+          ? (input.inicio!.trilha as Trilha)
+          : step === 'MENU'
+            ? null
+            : 'projeto',
+        nome,
+        nomePendente: step === 'CONFIRMA_NOME' ? (nome ?? 'Cliente') : null,
+        arquivos: step === 'ENVIO_ARQUIVOS' ? 1 : 0,
+        slots: step === 'HORARIO' ? [] : null,
+      };
+      const replies = promptFor(state);
+      return this.resposta(
+        state,
+        replies.length ? replies : [MESSAGES.menu_inicial],
+        [],
+        'regras',
+        usarIA,
+      );
+    }
+
+    if (!texto)
+      throw new BadRequestException('Digite uma mensagem para simular.');
+    const state = this.sanitizeState(input.estado);
+    if (state.step === 'HUMANO')
+      throw new BadRequestException(
+        'A conversa já foi encaminhada: recomece o teste.',
+      );
+
+    let origem: 'regras' | 'ia' | 'nenhuma' = 'regras';
+    let decision: Decision;
+
+    if (state.step === 'CUSTOM') {
+      const flow = fluxoPorId(state.custom!.flowId)!;
+      const r = stepFlow(
+        flow,
+        state.custom!,
+        { text: texto, hasFile: false },
+        { maxInvalid: opts.maxInvalid },
+      );
+      decision = customToDecision(r, flow.id, state.nome);
+      if (r.invalido && flow.kb?.length && usarIA && this.agents.available) {
+        const answer = await this.agents.answerFaq(
+          texto,
+          flow.kb,
+          flow.guidance as Guidance | undefined,
+        );
+        const retomar = promptOf(flow, state.custom!);
+        if (answer && retomar) {
+          origem = 'ia';
+          decision = {
+            patch: { step: 'CUSTOM', custom: state.custom, invalidCount: 0 },
+            replies: [answer, retomar],
+            effects: [],
+            flowId: flow.id,
+          };
+        }
+      }
+    } else {
+      let entrada: FlowInput | null = parseInput(state, texto, false);
+      if (entrada === null) {
+        if (usarIA && this.agents.available) {
+          origem = 'ia';
+          entrada = await this.agents.resolve({
+            state,
+            message: texto,
+            history: [],
+          });
+        } else {
+          origem = 'nenhuma';
+          entrada = { kind: 'invalid' };
+        }
+      }
+      const flow =
+        state.step === 'MENU' && entrada.kind === 'option'
+          ? fluxoDaOpcao(entrada.value)
+          : undefined;
+      decision = flow
+        ? customToDecision(startFlow(flow, state.nome), flow.id, state.nome)
+        : decide(state, entrada, opts);
+    }
+
+    const next: FlowState = { ...state, ...decision.patch };
+    return this.resposta(
+      next,
+      decision.replies,
+      decision.effects,
       origem,
-      entrada,
-      etapaDepois: d.effects.some((e) => e.type === 'handoff')
-        ? 'HUMANO'
-        : proxima,
-      mensagens: d.replies,
-      efeitos: d.effects.map((e) => e.type),
-      observacao:
-        origem === 'ia'
-          ? 'A IA foi chamada (conta no uso do dia). A mensagem final ao cliente ainda passa pelo Redator em produção.'
-          : origem === 'nenhuma' && input.usarIA !== false
-            ? 'A IA não está disponível agora; o bot usaria as regras fixas.'
-            : 'Resolvido só por regras fixas (sem IA).',
+      usarIA,
+      decision.flowId,
+    );
+  }
+
+  private async resposta(
+    state: FlowState,
+    replies: string[],
+    effects: Decision['effects'],
+    origem: 'regras' | 'ia' | 'nenhuma',
+    usarIA: boolean,
+    flowId?: string,
+  ) {
+    // Encaminhar a um atendente encerra a conversa do bot (como no atendimento real)
+    const handoff = effects.find((e) => e.type === 'handoff');
+    const estado: FlowState = handoff
+      ? { ...state, step: 'HUMANO', custom: null }
+      : state;
+    const fid =
+      flowId ?? (estado.step === 'CUSTOM' ? estado.custom?.flowId : undefined);
+
+    // Como o cliente leria: com a voz da IA (tom do fluxo), se ela estiver disponível e ligada no teste
+    let mensagens = replies;
+    let reescrita = false;
+    if (usarIA && this.humanizer.enabled && replies.length) {
+      mensagens = await this.humanizer.compose(
+        { contactId: -1, nome: estado.nome, history: [] } as never,
+        replies,
+        fid,
+      );
+      reescrita = mensagens.join('\n') !== replies.join('\n');
+    }
+    const rotulos: Record<string, string> = {
+      criar_pasta: 'Drive: criaria a pasta do cliente',
+      salvar_preferencias: 'Drive: salvaria as preferências',
+      salvar_respostas: 'Drive: salvaria as respostas',
+      oferecer_horarios: 'Pontta: ofereceria horários',
+      agendar: 'Pontta: agendaria a medição',
+      handoff: 'Encaminharia a um atendente (rodízio)',
+    };
+    const flow =
+      estado.step === 'CUSTOM' ? fluxoPorId(estado.custom!.flowId) : undefined;
+    const noAtual =
+      flow?.nos.findIndex((n) => n.id === estado.custom!.nodeId) ?? -1;
+    return {
+      estado,
+      mensagens,
+      reescrita,
+      origem,
+      efeitos: effects.map((e) => rotulos[e.type] ?? e.type),
+      terminou: estado.step === 'HUMANO',
+      onde: {
+        etapa: estado.step,
+        fluxo: flow ? { id: flow.id, nome: flow.nome } : null,
+        bloco:
+          flow && noAtual >= 0
+            ? { numero: noAtual + 1, titulo: flow.nos[noAtual].titulo }
+            : null,
+      },
+      aviso:
+        !this.agents.available && usarIA
+          ? 'A IA não está disponível agora: o teste usa só as regras fixas.'
+          : null,
     };
   }
 

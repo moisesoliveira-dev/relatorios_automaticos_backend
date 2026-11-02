@@ -5,6 +5,7 @@ import {
 } from '../services/chatbot.service';
 import { FakeInbox, FakeLock } from './support/fakes';
 import { ChatbotHumanizerService } from '../services/chatbot-humanizer.service';
+import { ChatbotAdminService } from '../services/chatbot-admin.service';
 import { MESSAGES } from '../domain/chatbot.messages';
 import {
   ChatbotContentService,
@@ -660,5 +661,104 @@ describe('jeito de falar e base de conhecimento por fluxo', () => {
       pergunta,
     ]);
     expect(x.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('simulador (Testar) com fluxos próprios', () => {
+  const kb = [
+    {
+      id: 'horario',
+      keywords: ['horario', 'abre'],
+      text: 'A loja abre de segunda a sábado, das 9h às 18h.',
+    },
+  ];
+  const montar = async (
+    f: CustomFlow,
+    agents: any,
+    humanizer: any = { enabled: false, compose: jest.fn() },
+  ) => {
+    const rows = new Map<string, { value: string; category: string }>();
+    const settings = {
+      getAllDecrypted: async () =>
+        [...rows].map(([key, r]) => ({
+          key,
+          ...r,
+          isEncrypted: false,
+          description: '',
+        })),
+      upsert: async (k: string, v: string, c: string) =>
+        void rows.set(k, { value: v, category: c }),
+      delete: async (k: string) => void rows.delete(k),
+    };
+    const content = new ChatbotContentService(settings as any);
+    await content.saveDraft({ ...emptyDoc(), fluxos: [f] }, null);
+    await content.publish(null);
+    const appConfig = {
+      chatbot: { maxInvalid: 3, maxOffTopic: 3, ponttaEnabled: false },
+    } as any;
+    return new ChatbotAdminService(
+      {} as any,
+      appConfig,
+      agents,
+      {} as any,
+      humanizer,
+    );
+  };
+  afterEach(() => new ChatbotContentService({} as any).apply(emptyDoc()));
+
+  it('percorre um fluxo publicado a partir do menu, mostra onde o cliente está e encerra no encaminhamento', async () => {
+    const svc = await montar(flow(), { available: false });
+    let r: any = await svc.converse({});
+    expect(r.mensagens.join('\n')).toContain('*6* - Orçamento rápido');
+    r = await svc.converse({ texto: '6', estado: r.estado });
+    expect(r.onde).toMatchObject({
+      etapa: 'CUSTOM',
+      fluxo: { nome: 'Orçamento rápido' },
+      bloco: { numero: 1, titulo: 'Nome' },
+    });
+    r = await svc.converse({ texto: 'Ana Paula', estado: r.estado });
+    expect(r.efeitos).toEqual(['Drive: criaria a pasta do cliente']);
+    expect(r.onde.bloco.numero).toBe(3);
+    expect(r.mensagens.join('\n')).toContain('O que você precisa, Ana Paula?');
+    r = await svc.converse({ texto: '1', estado: r.estado });
+    expect(r.onde.bloco.numero).toBe(4);
+    r = await svc.converse({
+      texto: 'quero falar com um atendente',
+      estado: r.estado,
+    });
+    expect(r.terminou).toBe(true);
+  });
+
+  it('dúvida dentro do fluxo usa a base do fluxo e o teste mostra a voz reescrita', async () => {
+    const answerFaq = jest.fn(
+      async () => 'A loja abre de segunda a sábado, das 9h às 18h.',
+    );
+    const compose = jest.fn(async (_c: unknown, t: string[]) =>
+      t.map((x) => '✨ ' + x),
+    );
+    const svc = await montar(
+      flow({
+        kb,
+        reescrever: true,
+        guidance: { tone: 'formal', instructions: '' },
+      }),
+      { available: true, answerFaq, resolve: jest.fn() },
+      { enabled: true, compose },
+    );
+    let r: any = await svc.converse({});
+    r = await svc.converse({ texto: '6', estado: r.estado });
+    expect(r.reescrita).toBe(true);
+    expect(compose).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.any(Array),
+      'orcamento_rapido',
+    );
+    r = await svc.converse({
+      texto: 'que horas a loja abre?',
+      estado: r.estado,
+    });
+    expect(r.origem).toBe('ia');
+    expect(r.mensagens[0]).toContain('segunda a sábado');
+    expect(r.onde.bloco.numero).toBe(1); // continua na mesma pergunta
   });
 });
