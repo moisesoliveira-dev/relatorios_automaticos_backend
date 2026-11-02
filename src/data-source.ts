@@ -13,13 +13,16 @@ export default new DataSource({
   ...(process.env.DATABASE_URL
     ? {
         url: process.env.DATABASE_URL,
-        ssl:
-          process.env.NODE_ENV === 'production'
-            ? {
-                rejectUnauthorized:
-                  process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
-              }
-            : false,
+        ssl: (
+          process.env.DB_SSL
+            ? process.env.DB_SSL === 'true'
+            : process.env.NODE_ENV === 'production'
+        )
+          ? {
+              rejectUnauthorized:
+                process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
+            }
+          : false,
       }
     : {
         host: process.env.DB_HOST,
