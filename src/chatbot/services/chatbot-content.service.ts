@@ -393,6 +393,11 @@ export class ChatbotContentService implements OnModuleInit {
                 : undefined,
           minimo: n?.minimo === undefined ? undefined : Number(n.minimo) || 0,
           acao: n?.acao,
+          armazenar: n?.armazenar === 'drive' ? 'drive' : undefined,
+          pasta:
+            n?.pasta === 'criar' || n?.pasta === 'existente'
+              ? n.pasta
+              : undefined,
         }),
       );
       const flow: CustomFlow = {

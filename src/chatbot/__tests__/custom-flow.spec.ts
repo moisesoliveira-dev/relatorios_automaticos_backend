@@ -785,3 +785,116 @@ describe('simulador (Testar) com fluxos próprios', () => {
     expect(r.onde.bloco.numero).toBe(1); // continua na mesma pergunta
   });
 });
+
+describe('tipos de mensagem (modelos)', () => {
+  const nome = {
+    id: 'n1',
+    tipo: 'pergunta' as const,
+    titulo: 'Nome',
+    texto: 'Qual seu nome?',
+    variavel: 'nome',
+    validacao: 'nome' as const,
+    proximo: 'n2',
+  };
+  const conf = {
+    id: 'n2',
+    tipo: 'confirmacao' as const,
+    titulo: 'Confirmar',
+    texto: 'Posso seguir, {nome}?',
+    opcoes: [
+      { rotulo: 'Sim', proximo: 'n3' },
+      { rotulo: 'Não', proximo: 'n4' },
+    ],
+  };
+  const pedido = (extra = {}) => ({
+    id: 'n3',
+    tipo: 'arquivos' as const,
+    titulo: 'Pedir projeto',
+    texto: 'Envie o projeto.',
+    minimo: 1,
+    armazenar: 'drive' as const,
+    pasta: 'criar' as const,
+    proximo: 'n4',
+    ...extra,
+  });
+  const fim = { id: 'n4', tipo: 'fim' as const, titulo: 'Fim', texto: 'Ok!' };
+  const mk = (nos: any[]) => flow({ nos });
+
+  it('confirmação oferece Sim/Não e segue pelo caminho escolhido', () => {
+    const f = mk([nome, conf, pedido(), fim]);
+    expect(checkFlow(f)).toEqual([]);
+    let r = startFlow(f, null);
+    r = stepFlow(
+      f,
+      r.state!,
+      { text: 'Ana', hasFile: false },
+      { maxInvalid: 3 },
+    );
+    expect(r.replies.join('\n')).toContain('Posso seguir, Ana?');
+    expect(r.replies.join('\n')).toContain('*1* - Sim');
+    const sim = stepFlow(
+      f,
+      r.state!,
+      { text: 'sim', hasFile: false },
+      { maxInvalid: 3 },
+    );
+    expect(sim.state?.nodeId).toBe('n3');
+    const nao = stepFlow(
+      f,
+      r.state!,
+      { text: '2', hasFile: false },
+      { maxInvalid: 3 },
+    );
+    expect(nao.saiu).toBe('menu');
+  });
+
+  it('confirmação exige exatamente duas opções', () => {
+    const f = mk([
+      nome,
+      {
+        ...conf,
+        opcoes: [...conf.opcoes, { rotulo: 'Talvez', proximo: 'n4' }],
+      },
+      pedido(),
+      fim,
+    ]);
+    expect(checkFlow(f).join(' ')).toContain('duas opções');
+  });
+
+  it('solicitação com Drive pede a pasta ao entrar (criar ou só se existir)', () => {
+    const chegar = (f: CustomFlow) => {
+      const o = { maxInvalid: 3 };
+      let r = startFlow(f, null);
+      r = stepFlow(f, r.state!, { text: 'Ana', hasFile: false }, o);
+      return stepFlow(f, r.state!, { text: '1', hasFile: false }, o);
+    };
+    expect(chegar(mk([nome, conf, pedido(), fim])).effects).toEqual([
+      { type: 'criar_pasta' },
+    ]);
+    expect(
+      chegar(mk([nome, conf, pedido({ pasta: 'existente' }), fim])).effects,
+    ).toEqual([{ type: 'criar_pasta', somenteSeExistir: true }]);
+  });
+
+  it('solicitação com Drive dispensa o bloco de ferramenta, mas exige o nome', () => {
+    expect(checkFlow(mk([nome, conf, pedido(), fim]))).toEqual([]);
+    const semNome = mk([
+      {
+        ...conf,
+        id: 'n1',
+        opcoes: [
+          { rotulo: 'Sim', proximo: 'n3' },
+          { rotulo: 'Não', proximo: 'n4' },
+        ],
+      },
+      pedido(),
+      fim,
+    ]);
+    expect(checkFlow(semNome).join(' ')).toContain('nome do cliente');
+    expect(
+      checkFlow(mk([nome, conf, pedido({ armazenar: undefined }), fim])).join(
+        ' ',
+      ),
+    ).toContain('guardar arquivos');
+  });
+});

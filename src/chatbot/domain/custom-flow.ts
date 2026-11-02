@@ -11,6 +11,7 @@ import { OK_RE, normalizeText, validarNome } from './input-parser';
 export type NodeType =
   | 'mensagem'
   | 'opcoes'
+  | 'confirmacao'
   | 'pergunta'
   | 'arquivos'
   | 'acao'
@@ -33,6 +34,10 @@ export interface FlowNode {
   /** arquivos: quantidade mínima antes de aceitar o "OK". */
   minimo?: number;
   acao?: ToolKey;
+  /** arquivos (solicitação): guarda o que o cliente enviar no Drive. */
+  armazenar?: 'drive';
+  /** armazenar=drive: 'criar' cria a pasta se faltar (e reaproveita a que existe); 'existente' só usa a pasta que já existe. */
+  pasta?: 'criar' | 'existente';
 }
 
 export interface FlowGuidance {
@@ -73,7 +78,7 @@ export interface CustomState {
 }
 
 export type CustomEffect =
-  | { type: 'criar_pasta' }
+  | { type: 'criar_pasta'; somenteSeExistir?: boolean }
   | {
       type: 'salvar_respostas';
       titulo: string;
@@ -93,7 +98,15 @@ export interface CustomResult {
   invalido?: boolean;
 }
 
-export const WAITING: NodeType[] = ['opcoes', 'pergunta', 'arquivos'];
+export const WAITING: NodeType[] = [
+  'opcoes',
+  'confirmacao',
+  'pergunta',
+  'arquivos',
+];
+
+/** Confirmação: sempre duas opções, Sim e Não. */
+export const CONFIRMACAO_ROTULOS = ['Sim', 'Não'];
 export const TOOLS: Array<{ key: ToolKey; label: string; descricao: string }> =
   [
     {
@@ -130,7 +143,7 @@ const byId = (flow: CustomFlow, id: string | null | undefined) =>
 
 function prompt(node: FlowNode, vars: Record<string, string>): string {
   const base = render(node.texto ?? '', vars);
-  if (node.tipo === 'opcoes') {
+  if (node.tipo === 'opcoes' || node.tipo === 'confirmacao') {
     const lista = (node.opcoes ?? [])
       .map((o, i) => `*${i + 1}* - ${o.rotulo}`)
       .join('\n');
@@ -211,7 +224,12 @@ function enter(
       case 'fim':
         if (node.texto) acc.replies.push(render(node.texto, state.vars));
         return leave(acc, 'menu');
-      default: // opcoes | pergunta | arquivos: espera o cliente
+      default: // opcoes | confirmacao | pergunta | arquivos: espera o cliente
+        if (node.tipo === 'arquivos' && node.armazenar === 'drive')
+          acc.effects.push({
+            type: 'criar_pasta',
+            somenteSeExistir: node.pasta === 'existente' || undefined,
+          });
         acc.replies.push(prompt(node, state.vars));
         return {
           state: { ...state, nodeId: node.id, invalidos: 0 },
@@ -274,6 +292,7 @@ export function stepFlow(
     );
 
   switch (node.tipo) {
+    case 'confirmacao':
     case 'opcoes': {
       const opcoes = node.opcoes ?? [];
       const n = /^(\d{1,2})[.)]?$/.exec(text);
@@ -358,6 +377,7 @@ export function promptOf(flow: CustomFlow, state: CustomState): string | null {
 const NODE_TYPES: NodeType[] = [
   'mensagem',
   'opcoes',
+  'confirmacao',
   'pergunta',
   'arquivos',
   'acao',
@@ -389,9 +409,13 @@ export function checkFlow(flow: CustomFlow): string[] {
       continue;
     }
     if (!n.titulo?.trim()) e.push(`Um bloco está sem nome.`);
-    const needsText = ['mensagem', 'opcoes', 'pergunta', 'arquivos'].includes(
-      n.tipo,
-    );
+    const needsText = [
+      'mensagem',
+      'opcoes',
+      'confirmacao',
+      'pergunta',
+      'arquivos',
+    ].includes(n.tipo);
     const texto = (n.texto ?? '').trim();
     if (needsText && !texto) e.push(`${at(n)}: escreva o texto da mensagem.`);
     if (texto.length > 1000)
@@ -408,9 +432,11 @@ export function checkFlow(flow: CustomFlow): string[] {
       n.tipo === 'acao'
     )
       dest(n, n.proximo, 'depois deste bloco');
-    if (n.tipo === 'opcoes') {
+    if (n.tipo === 'opcoes' || n.tipo === 'confirmacao') {
       const o = n.opcoes ?? [];
-      if (o.length < 2 || o.length > 8)
+      if (n.tipo === 'confirmacao' && o.length !== 2)
+        e.push(`${at(n)}: a confirmação tem sempre duas opções (Sim e Não).`);
+      else if (n.tipo === 'opcoes' && (o.length < 2 || o.length > 8))
         e.push(`${at(n)}: use de 2 a 8 opções.`);
       o.forEach((x, i) => {
         if (!x.rotulo?.trim() || x.rotulo.length > 60)
@@ -421,7 +447,9 @@ export function checkFlow(flow: CustomFlow): string[] {
       });
     }
     if (
-      (n.tipo === 'pergunta' || n.tipo === 'opcoes') &&
+      (n.tipo === 'pergunta' ||
+        n.tipo === 'opcoes' ||
+        n.tipo === 'confirmacao') &&
       n.variavel !== undefined &&
       n.variavel !== '' &&
       !/^[a-z][a-z0-9_]{0,29}$/.test(n.variavel)
@@ -435,15 +463,22 @@ export function checkFlow(flow: CustomFlow): string[] {
       );
     if (n.tipo === 'arquivos' && (n.minimo ?? 0) > 20)
       e.push(`${at(n)}: o mínimo de arquivos é 20.`);
+    if (n.armazenar && n.armazenar !== 'drive')
+      e.push(`${at(n)}: destino de armazenamento desconhecido.`);
+    if (n.pasta && !['criar', 'existente'].includes(n.pasta))
+      e.push(`${at(n)}: modo de pasta desconhecido.`);
     if (n.tipo === 'acao' && !TOOLS.some((t) => t.key === n.acao))
       e.push(`${at(n)}: escolha uma ferramenta.`);
   }
 
   const tools = flow.nos.filter((n) => n.tipo === 'acao').map((n) => n.acao);
-  const hasPasta = tools.includes('drive_criar_pasta');
+  const usaDrive = flow.nos.some(
+    (n) => n.tipo === 'arquivos' && n.armazenar === 'drive',
+  );
+  const hasPasta = tools.includes('drive_criar_pasta') || usaDrive;
   if (flow.nos.some((n) => n.tipo === 'arquivos') && !hasPasta)
     e.push(
-      'Para guardar arquivos é preciso um bloco “Drive: criar a pasta do cliente” antes.',
+      'Para guardar arquivos é preciso um bloco “Drive: criar a pasta do cliente” antes — ou marque “Guardar no Drive” na própria solicitação.',
     );
   if (tools.includes('drive_salvar_respostas') && !hasPasta)
     e.push(
@@ -454,7 +489,7 @@ export function checkFlow(flow: CustomFlow): string[] {
     !flow.nos.some((n) => n.tipo === 'pergunta' && n.variavel === 'nome')
   )
     e.push(
-      '“Drive: criar a pasta” precisa do nome do cliente: adicione uma pergunta com a variável “nome”.',
+      'Guardar no Drive precisa do nome do cliente: adicione uma pergunta com a variável “nome” antes.',
     );
   if (!flow.nos.some((n) => n.tipo === 'encaminhar' || n.tipo === 'fim'))
     e.push(

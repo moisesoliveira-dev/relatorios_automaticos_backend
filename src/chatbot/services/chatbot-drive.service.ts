@@ -49,6 +49,7 @@ export class ChatbotDriveService {
     ticketId: number,
     nome: string,
     now = new Date(),
+    criar = true,
   ): Promise<string | null> {
     const root = this.appConfig.chatbot.driveRootFolderId;
     if (!root) {
@@ -59,11 +60,22 @@ export class ChatbotDriveService {
     }
     // Mês/ano em Manaus (UTC-4)
     const local = new Date(now.getTime() - 4 * 3600_000);
-    const andamento = await this.drive.ensureFolderPath(root, [
+    const caminho = [
       String(local.getUTCFullYear()),
       MESES[local.getUTCMonth()],
       'ANDAMENTO',
-    ]);
+    ];
+    if (!criar) {
+      // Só procura: não cria nenhuma pasta no caminho.
+      let pai: string | null = root;
+      for (const nome of caminho) {
+        pai = pai ? await this.drive.findFolder(pai, nome) : null;
+      }
+      return pai
+        ? this.drive.findFolder(pai, `${ticketId} - `, 'startsWith')
+        : null;
+    }
+    const andamento = await this.drive.ensureFolderPath(root, caminho);
 
     const existing = await this.drive.findFolder(
       andamento,

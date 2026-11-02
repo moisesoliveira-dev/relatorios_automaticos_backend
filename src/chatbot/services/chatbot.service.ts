@@ -598,11 +598,17 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     switch (effect.type) {
       case 'criar_pasta':
         try {
-          if (conv.nome)
-            conv.driveFolderId = await this.drive.ensureClientFolder(
-              conv.ticketId,
-              conv.nome,
-            );
+          if (conv.nome) {
+            const pasta = await (effect.somenteSeExistir
+              ? this.drive.ensureClientFolder(
+                  conv.ticketId,
+                  conv.nome,
+                  new Date(),
+                  false,
+                )
+              : this.drive.ensureClientFolder(conv.ticketId, conv.nome));
+            if (pasta || !effect.somenteSeExistir) conv.driveFolderId = pasta;
+          }
         } catch (error) {
           this.logger.error(
             `Pasta do cliente não criada (ticket ${conv.ticketId}): ${(error as Error).message}`,

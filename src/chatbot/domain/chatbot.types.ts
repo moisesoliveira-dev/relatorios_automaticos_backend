@@ -74,7 +74,7 @@ export type HandoffMessage =
 
 /** Ações com efeito externo que o serviço executa depois de aplicar o novo estado. */
 export type Effect =
-  | { type: 'criar_pasta' }
+  | { type: 'criar_pasta'; somenteSeExistir?: boolean }
   | { type: 'salvar_preferencias' }
   | { type: 'oferecer_horarios' }
   | { type: 'agendar'; slotIndex: number }
