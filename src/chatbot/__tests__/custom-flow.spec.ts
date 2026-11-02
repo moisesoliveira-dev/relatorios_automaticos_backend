@@ -898,3 +898,101 @@ describe('tipos de mensagem (modelos)', () => {
     ).toContain('guardar arquivos');
   });
 });
+
+describe('regras de ordem entre os tipos', () => {
+  const o = { maxInvalid: 3 };
+  const perguntaNome = (proximo: string) => ({
+    id: 'a',
+    tipo: 'pergunta' as const,
+    titulo: 'Nome',
+    texto: 'Seu nome?',
+    variavel: 'nome',
+    proximo,
+  });
+  const drive = (id: string, proximo: string) => ({
+    id,
+    tipo: 'arquivos' as const,
+    titulo: 'Arquivos',
+    texto: 'Envie.',
+    armazenar: 'drive' as const,
+    pasta: 'criar' as const,
+    proximo,
+  });
+  const fim = { id: 'z', tipo: 'fim' as const, titulo: 'Fim', texto: 'Ok' };
+  const mk = (nos: any[]) => flow({ nos });
+
+  it('o nome precisa vir ANTES de guardar no Drive, não só existir no fluxo', () => {
+    const depois = mk([drive('b', 'a'), perguntaNome('z'), fim]);
+    expect(checkFlow(depois).join(' ')).toContain('nome do cliente antes');
+    const antes = mk([perguntaNome('b'), drive('b', 'z'), fim]);
+    expect(checkFlow(antes)).toEqual([]);
+  });
+
+  it('se um dos caminhos pula a pergunta do nome, o fluxo é recusado', () => {
+    const f = mk([
+      {
+        id: 'c',
+        tipo: 'confirmacao',
+        titulo: 'Quer informar?',
+        texto: 'Quer informar o nome?',
+        opcoes: [
+          { rotulo: 'Sim', proximo: 'a' },
+          { rotulo: 'Não', proximo: 'b' },
+        ],
+      },
+      perguntaNome('b'),
+      drive('b', 'z'),
+      fim,
+    ]);
+    expect(checkFlow(f).join(' ')).toContain('nome do cliente antes');
+  });
+
+  it('“salvar as respostas” exige a pasta criada antes', () => {
+    const salvar = {
+      id: 's',
+      tipo: 'acao' as const,
+      titulo: 'Salvar',
+      acao: 'drive_salvar_respostas' as const,
+      proximo: 'z',
+    };
+    expect(checkFlow(mk([perguntaNome('s'), salvar, fim])).join(' ')).toContain(
+      'pasta do cliente criada antes',
+    );
+    expect(
+      checkFlow(mk([perguntaNome('b'), drive('b', 's'), salvar, fim])),
+    ).toEqual([]);
+  });
+
+  it('variável só pode ser citada depois de respondida', () => {
+    const f = mk([
+      {
+        id: 'm',
+        tipo: 'mensagem',
+        titulo: 'Oi',
+        texto: 'Seu bairro é {bairro}.',
+        proximo: 'p',
+      },
+      {
+        id: 'p',
+        tipo: 'pergunta',
+        titulo: 'Bairro',
+        texto: 'Qual o bairro?',
+        variavel: 'bairro',
+        proximo: 'z',
+      },
+      fim,
+    ]);
+    expect(checkFlow(f).join(' ')).toContain(
+      '{bairro} ainda não foi respondida',
+    );
+  });
+
+  it('bloco que ninguém alcança é apontado', () => {
+    const f = mk([
+      { id: 'm', tipo: 'mensagem', titulo: 'Oi', texto: 'Oi', proximo: 'z' },
+      fim,
+      { id: 'o', tipo: 'fim', titulo: 'Solto', texto: 'x' },
+    ]);
+    expect(checkFlow(f).join(' ')).toContain('nenhum caminho chega');
+  });
+});

@@ -385,6 +385,67 @@ const NODE_TYPES: NodeType[] = [
   'fim',
 ];
 
+const criaPasta = (n: FlowNode): boolean =>
+  (n.tipo === 'acao' && n.acao === 'drive_criar_pasta') ||
+  (n.tipo === 'arquivos' && n.armazenar === 'drive');
+const guardaVariavel = (n: FlowNode): string | null =>
+  (n.tipo === 'pergunta' || n.tipo === 'opcoes' || n.tipo === 'confirmacao') &&
+  n.variavel
+    ? n.variavel
+    : null;
+const sucessores = (n: FlowNode): Array<string | null | undefined> =>
+  n.tipo === 'opcoes' || n.tipo === 'confirmacao'
+    ? (n.opcoes ?? []).map((o) => o.proximo)
+    : n.tipo === 'encaminhar' || n.tipo === 'fim'
+      ? []
+      : [n.proximo];
+
+export interface Contexto {
+  /** Respostas já guardadas, em TODOS os caminhos que chegam ao bloco. */
+  vars: Set<string>;
+  /** A pasta do cliente no Drive já foi criada em todos esses caminhos. */
+  pasta: boolean;
+}
+
+/**
+ * Para cada bloco alcançável a partir do início, o que já aconteceu antes dele (a interseção de todos
+ * os caminhos). Blocos fora do mapa não são alcançados por ninguém.
+ */
+export function contextos(flow: CustomFlow): Map<string, Contexto> {
+  const entradas = new Map<string, Contexto>();
+  if (!flow.nos.length) return entradas;
+  const ids = new Set(flow.nos.map((n) => n.id));
+  const inicio = flow.nos[0].id;
+  entradas.set(inicio, { vars: new Set(), pasta: false });
+  const fila = [inicio];
+  for (let guarda = 0; fila.length && guarda < 5000; guarda++) {
+    const n = byId(flow, fila.shift())!;
+    const ent = entradas.get(n.id)!;
+    const saida: Contexto = {
+      vars: new Set(ent.vars),
+      pasta: ent.pasta || criaPasta(n),
+    };
+    const v = guardaVariavel(n);
+    if (v) saida.vars.add(v);
+    for (const s of sucessores(n)) {
+      if (!s || !ids.has(s)) continue;
+      const atual = entradas.get(s);
+      if (!atual) {
+        entradas.set(s, { vars: new Set(saida.vars), pasta: saida.pasta });
+        fila.push(s);
+        continue;
+      }
+      const vars = new Set([...atual.vars].filter((x) => saida.vars.has(x)));
+      const pasta = atual.pasta && saida.pasta;
+      if (vars.size !== atual.vars.size || pasta !== atual.pasta) {
+        entradas.set(s, { vars, pasta });
+        fila.push(s);
+      }
+    }
+  }
+  return entradas;
+}
+
 /** Devolve a lista de problemas do fluxo (vazia = válido). Não altera o fluxo. */
 export function checkFlow(flow: CustomFlow): string[] {
   const e: string[] = [];
@@ -395,8 +456,7 @@ export function checkFlow(flow: CustomFlow): string[] {
   if (ids.size !== flow.nos.length)
     e.push('Há blocos com identificador repetido.');
   const vars = new Set<string>(['nome']);
-  for (const n of flow.nos)
-    if (n.tipo === 'pergunta' && n.variavel) vars.add(n.variavel);
+  for (const n of flow.nos) if (guardaVariavel(n)) vars.add(n.variavel!);
   const dest = (n: FlowNode, to: string | null | undefined, where: string) => {
     if (!to) e.push(`${at(n)}: escolha para onde o cliente vai ${where}.`);
     else if (!ids.has(to))
@@ -471,26 +531,34 @@ export function checkFlow(flow: CustomFlow): string[] {
       e.push(`${at(n)}: escolha uma ferramenta.`);
   }
 
-  const tools = flow.nos.filter((n) => n.tipo === 'acao').map((n) => n.acao);
-  const usaDrive = flow.nos.some(
-    (n) => n.tipo === 'arquivos' && n.armazenar === 'drive',
-  );
-  const hasPasta = tools.includes('drive_criar_pasta') || usaDrive;
-  if (flow.nos.some((n) => n.tipo === 'arquivos') && !hasPasta)
-    e.push(
-      'Para guardar arquivos é preciso um bloco “Drive: criar a pasta do cliente” antes — ou marque “Guardar no Drive” na própria solicitação.',
-    );
-  if (tools.includes('drive_salvar_respostas') && !hasPasta)
-    e.push(
-      '“Drive: salvar as respostas” precisa de “Drive: criar a pasta do cliente”.',
-    );
-  if (
-    hasPasta &&
-    !flow.nos.some((n) => n.tipo === 'pergunta' && n.variavel === 'nome')
-  )
-    e.push(
-      'Guardar no Drive precisa do nome do cliente: adicione uma pergunta com a variável “nome” antes.',
-    );
+  // Regras de ORDEM: o que cada bloco precisa já ter acontecido em todos os caminhos que chegam nele.
+  const ctx = contextos(flow);
+  for (const n of flow.nos) {
+    const c = ctx.get(n.id);
+    if (!c) {
+      e.push(
+        `${at(n)}: nenhum caminho chega até este bloco. Ligue-o a uma etapa anterior ou exclua.`,
+      );
+      continue;
+    }
+    for (const m of (n.texto ?? '').matchAll(/\{(\w+)\}/g))
+      if (m[1] !== 'nome' && vars.has(m[1]) && !c.vars.has(m[1]))
+        e.push(
+          `${at(n)}: {${m[1]}} ainda não foi respondida quando esta etapa roda. Coloque a pergunta antes.`,
+        );
+    if (criaPasta(n) && !c.vars.has('nome'))
+      e.push(
+        `${at(n)}: para guardar no Drive é preciso o nome do cliente antes. Coloque antes uma pergunta guardada como “nome”.`,
+      );
+    if (n.tipo === 'acao' && n.acao === 'drive_salvar_respostas' && !c.pasta)
+      e.push(
+        `${at(n)}: “Drive: salvar as respostas” precisa da pasta do cliente criada antes (etapa “Drive: criar a pasta” ou uma Solicitação com Drive).`,
+      );
+    if (n.tipo === 'arquivos' && !criaPasta(n) && !c.pasta)
+      e.push(
+        `${at(n)}: para guardar arquivos é preciso criar a pasta do cliente antes: marque “Guardar no Drive” nesta etapa ou crie a pasta numa etapa anterior.`,
+      );
+  }
   if (!flow.nos.some((n) => n.tipo === 'encaminhar' || n.tipo === 'fim'))
     e.push(
       'O fluxo precisa terminar em “Encaminhar a um atendente” ou “Encerrar”.',
