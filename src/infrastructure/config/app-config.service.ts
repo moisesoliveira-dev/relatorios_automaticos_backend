@@ -91,37 +91,80 @@ export class AppConfigService {
     return this.env.DB_SYNCHRONIZE;
   }
 
+  /**
+   * Ajustes editados pela tela da IA (tabela settings). Valem na hora, em todas as instâncias
+   * (recarregados a cada 30 s) e têm prioridade sobre as variáveis de ambiente.
+   */
+  private runtime: Record<string, string> = {};
+
+  setRuntimeOverrides(map: Record<string, string>): void {
+    this.runtime = { ...map };
+  }
+
+  runtimeOverrides(): Readonly<Record<string, string>> {
+    return this.runtime;
+  }
+
+  private pick(key: string): string | undefined {
+    const v = this.runtime[key];
+    return v === undefined || v === '' ? undefined : v;
+  }
+  private bool(key: string, fallback: boolean): boolean {
+    const v = this.pick(key);
+    return v === undefined ? fallback : v === 'true';
+  }
+  private num(key: string, fallback: number): number {
+    const v = this.pick(key);
+    const n = v === undefined ? NaN : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  private optNum(key: string, fallback?: number): number | undefined {
+    const v = this.pick(key);
+    if (v === undefined) return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  private str(key: string, fallback?: string): string | undefined {
+    return this.pick(key) ?? fallback;
+  }
+
   get chatbot() {
     const e = this.env;
     return {
-      enabled: e.CHATBOT_ENABLED,
-      aiEnabled: e.CHATBOT_AI_ENABLED,
-      ponttaEnabled: e.CHATBOT_PONTTA_ENABLED,
-      debounceMs: e.CHATBOT_DEBOUNCE_MS,
-      maxInvalid: e.CHATBOT_MAX_INVALID,
-      maxOffTopic: e.CHATBOT_MAX_OFF_TOPIC,
-      humanize: e.CHATBOT_HUMANIZE,
-      typingDelay: e.CHATBOT_TYPING_DELAY,
-      writerDailyLimit: e.CHATBOT_WRITER_DAILY_LIMIT,
-      aiDailyLimit: e.CHATBOT_AI_DAILY_LIMIT,
-      humanIdleMinutes: e.CHATBOT_HUMAN_IDLE_MINUTES,
-      measureOwnerId: e.CHATBOT_MEASURE_OWNER_ID,
-      dealWorkflowId: e.CHATBOT_DEAL_WORKFLOW_ID,
-      dealFallbackEmail: e.CHATBOT_DEAL_FALLBACK_EMAIL,
-      driveRootFolderId: e.CHATBOT_DRIVE_ROOT_FOLDER_ID,
-      fallbackGosacUserId: e.CHATBOT_FALLBACK_GOSAC_USER_ID,
-      fallbackGosacQueueId: e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID,
+      enabled: this.bool('CHATBOT_ENABLED', e.CHATBOT_ENABLED),
+      aiEnabled: this.bool('CHATBOT_AI_ENABLED', e.CHATBOT_AI_ENABLED),
+      ponttaEnabled: this.bool('CHATBOT_PONTTA_ENABLED', e.CHATBOT_PONTTA_ENABLED),
+      debounceMs: this.num('CHATBOT_DEBOUNCE_MS', e.CHATBOT_DEBOUNCE_MS),
+      maxInvalid: this.num('CHATBOT_MAX_INVALID', e.CHATBOT_MAX_INVALID),
+      maxOffTopic: this.num('CHATBOT_MAX_OFF_TOPIC', e.CHATBOT_MAX_OFF_TOPIC),
+      humanize: this.bool('CHATBOT_HUMANIZE', e.CHATBOT_HUMANIZE),
+      typingDelay: this.bool('CHATBOT_TYPING_DELAY', e.CHATBOT_TYPING_DELAY),
+      writerDailyLimit: this.num('CHATBOT_WRITER_DAILY_LIMIT', e.CHATBOT_WRITER_DAILY_LIMIT),
+      aiDailyLimit: this.num('CHATBOT_AI_DAILY_LIMIT', e.CHATBOT_AI_DAILY_LIMIT),
+      humanIdleMinutes: this.num('CHATBOT_HUMAN_IDLE_MINUTES', e.CHATBOT_HUMAN_IDLE_MINUTES),
+      measureOwnerId: this.str('CHATBOT_MEASURE_OWNER_ID', e.CHATBOT_MEASURE_OWNER_ID),
+      dealWorkflowId: this.str('CHATBOT_DEAL_WORKFLOW_ID', e.CHATBOT_DEAL_WORKFLOW_ID),
+      dealFallbackEmail: this.str('CHATBOT_DEAL_FALLBACK_EMAIL', e.CHATBOT_DEAL_FALLBACK_EMAIL),
+      driveRootFolderId: this.str('CHATBOT_DRIVE_ROOT_FOLDER_ID', e.CHATBOT_DRIVE_ROOT_FOLDER_ID),
+      fallbackGosacUserId: this.optNum('CHATBOT_FALLBACK_GOSAC_USER_ID', e.CHATBOT_FALLBACK_GOSAC_USER_ID),
+      fallbackGosacQueueId: this.optNum('CHATBOT_FALLBACK_GOSAC_QUEUE_ID', e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID),
     };
   }
 
   get openai() {
     const e = this.env;
     return {
-      apiKey: e.OPENAI_API_KEY,
-      model: e.OPENAI_MODEL,
+      apiKey: this.str('OPENAI_API_KEY', e.OPENAI_API_KEY),
+      model: this.str('OPENAI_MODEL', e.OPENAI_MODEL)!,
       temperature: e.OPENAI_TEMPERATURE,
       timeoutMs: e.OPENAI_TIMEOUT_MS,
     };
+  }
+
+  /** Modelo de um agente: ajuste da tela > variável OPENAI_MODEL_<AGENTE> > modelo padrão. */
+  modelFor(agent: string): string {
+    const key = `OPENAI_MODEL_${agent.toUpperCase()}`;
+    return this.pick(key) || process.env[key]?.trim() || this.openai.model;
   }
 
   get rotationDatabaseUrl(): string | undefined {

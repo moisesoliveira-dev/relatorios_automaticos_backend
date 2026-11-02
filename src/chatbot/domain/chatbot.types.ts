@@ -64,9 +64,7 @@ export type FlowInput =
   | { kind: 'invalid' };
 
 export type HandoffMessage =
-  | 'redirecionando'
-  | 'redirecionando_com_nome'
-  | 'agendado';
+  'redirecionando' | 'redirecionando_com_nome' | 'agendado';
 
 /** Ações com efeito externo que o serviço executa depois de aplicar o novo estado. */
 export type Effect =

@@ -29,6 +29,7 @@ export interface AgentCall {
 export class OpenAiService {
   private readonly logger = new Logger(OpenAiService.name);
   private client?: OpenAI;
+  private clientKey?: string;
   private inflight = 0;
   private readonly maxInflight = 8;
   private failures: number[] = [];
@@ -45,9 +46,14 @@ export class OpenAiService {
   }
 
   private getClient(): OpenAI {
-    if (!this.client) {
-      const { apiKey, timeoutMs } = this.appConfig.openai;
+    const { apiKey, timeoutMs } = this.appConfig.openai;
+    // A chave pode ser trocada pela tela da IA: recria o cliente quando ela muda.
+    if (
+      !this.client ||
+      (this.clientKey !== undefined && this.clientKey !== apiKey)
+    ) {
       this.client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 1 });
+      this.clientKey = apiKey;
     }
     return this.client;
   }
@@ -55,6 +61,7 @@ export class OpenAiService {
   /** Para testes: injeta um cliente falso. */
   setClientForTests(client: OpenAI): void {
     this.client = client;
+    this.clientKey = undefined; // cliente falso: nunca recriar
   }
 
   private recordFailure(): void {
@@ -69,10 +76,7 @@ export class OpenAiService {
   }
 
   private modelFor(agent: string): string {
-    return (
-      process.env[`OPENAI_MODEL_${agent.toUpperCase()}`]?.trim() ||
-      this.appConfig.openai.model
-    );
+    return this.appConfig.modelFor(agent);
   }
 
   /** Executa um agente e devolve os argumentos brutos da função (ainda NÃO confiáveis), ou null. */

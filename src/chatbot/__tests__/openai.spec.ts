@@ -4,17 +4,21 @@ describe('OpenAiService.callTool', () => {
   const config = (
     over: Record<string, unknown> = {},
     chatbot: Record<string, unknown> = {},
-  ) =>
-    ({
+  ) => {
+    const openai = {
+      apiKey: 'sk-teste',
+      model: 'modelo-base',
+      temperature: 0,
+      timeoutMs: 1000,
+      ...over,
+    };
+    return {
       chatbot: { aiEnabled: true, ...chatbot },
-      openai: {
-        apiKey: 'sk-teste',
-        model: 'modelo-base',
-        temperature: 0,
-        timeoutMs: 1000,
-        ...over,
-      },
-    }) as any;
+      openai,
+      modelFor: (agent: string) =>
+        process.env[`OPENAI_MODEL_${agent.toUpperCase()}`] || openai.model,
+    } as any;
+  };
 
   const tool = {
     name: 'f',

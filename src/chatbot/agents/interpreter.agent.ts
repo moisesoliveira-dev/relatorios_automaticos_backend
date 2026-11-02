@@ -30,8 +30,7 @@ export interface InterpretRaw {
 
 /** Resultado já validado: ou uma entrada do fluxo, ou "dúvida" (que segue para o agente de FAQ). */
 export type Interpretation =
-  | { kind: 'flow'; input: FlowInput }
-  | { kind: 'duvida' };
+  { kind: 'flow'; input: FlowInput } | { kind: 'duvida' };
 
 export const STEP_DESCRIPTION: Record<string, string> = {
   MENU: 'Menu principal: 1=já tenho projeto e quero orçar; 2=só tenho planta baixa e quero um projeto; 3=não tenho projeto nem planta; 4=informações de pagamento por boleto; 5=endereço da loja.',

@@ -10,13 +10,13 @@ export class GosacMessengerService {
   private readonly logger = new Logger(GosacMessengerService.name);
   private readonly baseUrl: string;
   private readonly apiKey: string;
-  private readonly typingDelay: boolean;
+  private readonly appConfig: AppConfigService;
 
   constructor(appConfig: AppConfigService) {
+    this.appConfig = appConfig;
     const gosac = appConfig.gosacApi;
     this.baseUrl = (gosac.baseUrl ?? '').replace(/\/+$/, '');
     this.apiKey = gosac.apiKey ?? '';
-    this.typingDelay = appConfig.chatbot.typingDelay;
   }
 
   get host(): string {
@@ -77,7 +77,8 @@ export class GosacMessengerService {
   /** Envia vários textos em ordem, cada um depois de uma pausa natural. */
   async sendTexts(ticketId: number, bodies: string[]): Promise<void> {
     for (let i = 0; i < bodies.length; i++) {
-      if (this.typingDelay) await sleep(this.typingMs(bodies[i]));
+      if (this.appConfig.chatbot.typingDelay)
+        await sleep(this.typingMs(bodies[i]));
       else if (i > 0) await sleep(300);
       await this.sendText(ticketId, bodies[i]);
     }
