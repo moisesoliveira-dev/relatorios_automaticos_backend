@@ -27,6 +27,10 @@ export interface MessageSpec {
   saudacao?: boolean;
   /** Tamanho máximo do texto escrito pela IA (sem o bloco fixo). */
   maxChars?: number;
+  /** Trechos (sem acento, minúsculos) que precisam continuar no texto (ex.: o que estava em *negrito*). */
+  manter?: string[];
+  /** A mensagem original faz uma pergunta: a nova também precisa perguntar. */
+  perguntar?: boolean;
 }
 
 const p = (...anyOf: string[]): Point => ({ anyOf });

@@ -121,16 +121,21 @@ export const strip = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /** Busca determinística: as `limit` entradas com mais palavras-chave presentes na pergunta. */
-export function retrieveKb(question: string, limit = 3): KbEntry[] {
+export function retrieveKb(
+  question: string,
+  limit = 3,
+  kb: KbEntry[] = KNOWLEDGE_BASE,
+): KbEntry[] {
   const tokens = new Set(
     strip(question)
       .split(/[^a-z0-9]+/)
       .filter((t) => t.length >= 2),
   );
-  return KNOWLEDGE_BASE.map((entry) => ({
-    entry,
-    score: entry.keywords.filter((k) => tokens.has(k)).length,
-  }))
+  return kb
+    .map((entry) => ({
+      entry,
+      score: entry.keywords.filter((k) => tokens.has(k)).length,
+    }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)

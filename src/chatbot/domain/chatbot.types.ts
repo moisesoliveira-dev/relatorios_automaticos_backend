@@ -89,6 +89,7 @@ export type Effect =
       reutilizarAtendente?: boolean;
       /** Texto próprio de um fluxo personalizado, no lugar da mensagem padrão de encaminhamento. */
       texto?: string;
+      flowId?: string;
     };
 
 export interface Decision {
@@ -96,4 +97,6 @@ export interface Decision {
   /** Textos fixos a enviar, na ordem. */
   replies: string[];
   effects: Effect[];
+  /** Fluxo personalizado de onde vêm os textos (define o jeito de falar na hora de enviar). */
+  flowId?: string;
 }

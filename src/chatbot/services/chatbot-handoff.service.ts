@@ -46,6 +46,7 @@ export class ChatbotHandoffService {
     kind: HandoffMessage,
     reutilizar = false,
     texto?: string,
+    flowId?: string,
   ): Promise<HandoffResult> {
     const cfg = this.appConfig.chatbot;
     const errors: string[] = [];
@@ -78,9 +79,11 @@ export class ChatbotHandoffService {
     // 2) Mensagem ao cliente (falha de envio não impede a entrega do ticket)
     try {
       // Passa pelo Redator como as demais mensagens (cai no texto original se a IA falhar)
-      const bubbles = await this.humanizer.compose(conv, [
-        texto ?? this.textFor(kind, conv.nome),
-      ]);
+      const bubbles = await this.humanizer.compose(
+        conv,
+        [texto ?? this.textFor(kind, conv.nome)],
+        flowId,
+      );
       await this.messenger.sendTexts(conv.ticketId, bubbles);
     } catch (error) {
       errors.push(`mensagem: ${(error as Error).message}`);

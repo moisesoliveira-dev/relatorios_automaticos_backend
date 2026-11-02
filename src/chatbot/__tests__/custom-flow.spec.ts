@@ -4,6 +4,7 @@ import {
   parseWebhook,
 } from '../services/chatbot.service';
 import { FakeInbox, FakeLock } from './support/fakes';
+import { ChatbotHumanizerService } from '../services/chatbot-humanizer.service';
 import { MESSAGES } from '../domain/chatbot.messages';
 import {
   ChatbotContentService,
@@ -391,6 +392,7 @@ describe('fluxo personalizado dentro do ChatbotService', () => {
       'redirecionando_com_nome',
       false,
       'Obrigada, Ana Paula! Já chamo alguém.',
+      'orcamento_rapido',
     );
     expect(t.repo.rows[0].step).toBe('HUMANO');
     expect(t.repo.rows[0].custom).toBeNull();
@@ -485,5 +487,178 @@ describe('rascunho de fluxo incompleto', () => {
     expect(ok.problemas).toEqual([]);
     await content.publish(null);
     new ChatbotContentService({} as any).apply(emptyDoc());
+  });
+});
+
+describe('jeito de falar e base de conhecimento por fluxo', () => {
+  const kb = [
+    {
+      id: 'horario',
+      keywords: ['horario', 'abre'],
+      text: 'A loja abre de segunda a sábado, das 9h às 18h.',
+    },
+  ];
+  const publicar = async (f: CustomFlow) => {
+    const rows = new Map<string, { value: string; category: string }>();
+    const settings = {
+      getAllDecrypted: async () =>
+        [...rows].map(([key, r]) => ({
+          key,
+          ...r,
+          isEncrypted: false,
+          description: '',
+        })),
+      upsert: async (k: string, v: string, c: string) =>
+        void rows.set(k, { value: v, category: c }),
+      delete: async (k: string) => void rows.delete(k),
+    };
+    const content = new ChatbotContentService(settings as any);
+    await content.saveDraft({ ...emptyDoc(), fluxos: [f] }, null);
+    await content.publish(null);
+  };
+  afterEach(() => new ChatbotContentService({} as any).apply(emptyDoc()));
+
+  it('valida tom e base de cada fluxo', () => {
+    const content = new ChatbotContentService({} as any);
+    const erros = (fn: () => unknown): string => {
+      try {
+        fn();
+      } catch (e) {
+        return ((e as any).getResponse().message as string[]).join(' ');
+      }
+      return '';
+    };
+    expect(
+      erros(() =>
+        content.validate({
+          ...emptyDoc(),
+          fluxos: [flow({ guidance: { tone: 'gritando', instructions: '' } })],
+        }),
+      ),
+    ).toMatch(/tom desconhecido/);
+    expect(
+      erros(() =>
+        content.validate({
+          ...emptyDoc(),
+          fluxos: [flow({ kb: [{ id: 'x', keywords: [], text: 'curto' }] })],
+        }),
+      ),
+    ).toMatch(/10 a 600/);
+    const ok = content.validate({
+      ...emptyDoc(),
+      fluxos: [
+        flow({
+          guidance: { tone: 'formal', instructions: 'Trate por senhor.' },
+          kb,
+          reescrever: true,
+        }),
+      ],
+    });
+    expect(ok.fluxos[0].guidance).toEqual({
+      tone: 'formal',
+      instructions: 'Trate por senhor.',
+    });
+    expect(ok.fluxos[0].kb?.[0].id).toBe('horario');
+    expect(ok.fluxos[0].reescrever).toBe(true);
+  });
+
+  it('dúvida dentro do fluxo é respondida com a base DO FLUXO e a conversa retoma a pergunta', async () => {
+    await publicar(
+      flow({ kb, guidance: { tone: 'formal', instructions: '' } }),
+    );
+    const answerFaq = jest.fn(
+      async () => 'A loja abre de segunda a sábado, das 9h às 18h.',
+    );
+    const t = setup({
+      ai: { available: true, counters: {}, resolve: jest.fn(), answerFaq },
+    });
+    await t.say('Oi');
+    await t.say('6');
+    const r = await t.say('que horas a loja abre?');
+    expect(answerFaq).toHaveBeenCalledWith(
+      'que horas a loja abre?',
+      expect.arrayContaining([expect.objectContaining({ id: 'horario' })]),
+      { tone: 'formal', instructions: '' },
+    );
+    expect(r[0]).toContain('segunda a sábado');
+    expect(r.join('\n')).toContain('Qual é o seu nome?');
+    expect(t.repo.rows[0].step).toBe('CUSTOM');
+    expect(t.repo.rows[0].custom.invalidos).toBe(0);
+  });
+
+  it('sem base no fluxo, a dúvida cai no tratamento normal de resposta inválida', async () => {
+    await publicar(flow());
+    const answerFaq = jest.fn();
+    const t = setup({
+      ai: { available: true, counters: {}, resolve: jest.fn(), answerFaq },
+    });
+    await t.say('Oi');
+    await t.say('6');
+    expect((await t.say('que horas a loja abre?')).join('\n')).toContain('Ops');
+    expect(answerFaq).not.toHaveBeenCalled();
+  });
+
+  const humanizer = (writerOut: unknown) => {
+    const run = jest.fn(async () => writerOut);
+    const h = new ChatbotHumanizerService(
+      { chatbot: { humanize: true, writerDailyLimit: 99 } } as any,
+      { enabled: true, breakerOpen: false } as any,
+      { run } as any,
+    );
+    return { h, run };
+  };
+  const conv = { contactId: 1, nome: 'Ana', history: [] } as any;
+  const pergunta =
+    'Qual é o seu nome?\n\n0 - ↩️ Voltar uma etapa\n10 - 🔄 Recomeçar o atendimento';
+
+  it('reescrever: a IA usa o tom do fluxo, o revisor exige a pergunta e o bloco de comandos fica intacto', async () => {
+    await publicar(
+      flow({
+        reescrever: true,
+        guidance: { tone: 'formal', instructions: 'Seja breve.' },
+      }),
+    );
+    const ok = humanizer({
+      abertura: 'Poderia me informar o seu nome, por gentileza?',
+      fechamento: null,
+    });
+    const out = await ok.h.compose(conv, [pergunta], 'orcamento_rapido');
+    expect(ok.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        guidance: { tone: 'formal', instructions: 'Seja breve.' },
+      }),
+    );
+    expect(out.join('\n')).toContain('Poderia me informar o seu nome');
+    expect(out.join('\n')).toContain('10 - 🔄 Recomeçar');
+
+    const semPergunta = humanizer({
+      abertura: 'Preciso do seu nome.',
+      fechamento: null,
+    });
+    expect(
+      await semPergunta.h.compose(conv, [pergunta], 'orcamento_rapido'),
+    ).toEqual([pergunta]); // reprovado: volta o original
+
+    const inventou = humanizer({
+      abertura: 'Qual o seu nome? Temos 50% de desconto!',
+      fechamento: null,
+    });
+    expect(
+      await inventou.h.compose(conv, [pergunta], 'orcamento_rapido'),
+    ).toEqual([pergunta]);
+  });
+
+  it('sem "reescrever", o texto do fluxo vai exatamente como o dono escreveu', async () => {
+    await publicar(
+      flow({
+        reescrever: false,
+        guidance: { tone: 'formal', instructions: '' },
+      }),
+    );
+    const x = humanizer({ abertura: 'qualquer coisa', fechamento: null });
+    expect(await x.h.compose(conv, [pergunta], 'orcamento_rapido')).toEqual([
+      pergunta,
+    ]);
+    expect(x.run).not.toHaveBeenCalled();
   });
 });

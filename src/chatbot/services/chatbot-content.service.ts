@@ -251,61 +251,81 @@ export class ChatbotContentService implements OnModuleInit {
       else if (nome !== DEFAULT_CATEGORIAS[Number(n)]) doc.categorias[n] = nome;
     }
 
-    if (raw.kb !== null && raw.kb !== undefined) {
-      if (!Array.isArray(raw.kb)) errors.push('Base de conhecimento inválida.');
-      else if (raw.kb.length > MAX_KB)
-        errors.push(`A base aceita no máximo ${MAX_KB} entradas.`);
-      else {
-        const ids = new Set<string>();
-        const kb: KbEntry[] = [];
-        raw.kb.forEach((e, i) => {
-          const text = String(e?.text ?? '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (text.length < 10 || text.length > 600) {
-            errors.push(
-              `Base, item ${i + 1}: o texto precisa ter de 10 a 600 caracteres.`,
-            );
-            return;
-          }
-          let id = strip(String(e?.id ?? ''))
-            .replace(/[^a-z0-9_-]/g, '')
-            .slice(0, 40);
-          if (!id) id = `item-${i + 1}`;
-          while (ids.has(id)) id = `${id}-x`;
-          ids.add(id);
-          let keywords = (Array.isArray(e?.keywords) ? e.keywords : [])
-            .map((k) => strip(String(k)).replace(/[^a-z0-9]/g, ''))
-            .filter((k) => k.length >= 2 && k.length <= 30);
-          if (!keywords.length)
-            keywords = strip(text)
-              .split(/[^a-z0-9]+/)
-              .filter((w) => w.length >= 4);
-          keywords = [...new Set(keywords)].slice(0, 30);
-          if (!keywords.length)
-            errors.push(
-              `Base, item ${i + 1}: informe ao menos uma palavra-chave.`,
-            );
-          else kb.push({ id, keywords, text });
-        });
-        doc.kb = kb;
-      }
-    }
+    if (raw.kb !== null && raw.kb !== undefined)
+      doc.kb = this.validateKb(raw.kb, errors, 'Base');
 
     doc.fluxos = this.validateFlows(raw.fluxos, strictFlows ? errors : []);
 
-    const g = raw.guidance;
-    if (g) {
-      const tone = (g.tone ?? 'padrao') as ToneKey;
-      if (!(tone in TONES)) errors.push('Tom desconhecido.');
-      const instructions = String(g.instructions ?? '').trim();
-      if (instructions.length > 1500)
-        errors.push('As instruções para a IA passam de 1500 caracteres.');
-      doc.guidance = { tone, instructions };
-    }
+    if (raw.guidance)
+      doc.guidance = this.validateGuidance(
+        raw.guidance,
+        errors,
+        'Jeito de falar',
+      );
 
     if (errors.length) throw new BadRequestException(errors);
     return doc;
+  }
+
+  private validateKb(
+    input: unknown,
+    errors: string[],
+    label: string,
+  ): KbEntry[] {
+    if (!Array.isArray(input)) {
+      errors.push(`${label}: lista inválida.`);
+      return [];
+    }
+    if (input.length > MAX_KB) {
+      errors.push(`${label}: no máximo ${MAX_KB} assuntos.`);
+      return [];
+    }
+    const ids = new Set<string>();
+    const kb: KbEntry[] = [];
+    (input as Array<Partial<KbEntry>>).forEach((e, i) => {
+      const text = String(e?.text ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text.length < 10 || text.length > 600) {
+        errors.push(
+          `${label}, assunto ${i + 1}: o texto precisa ter de 10 a 600 caracteres.`,
+        );
+        return;
+      }
+      let id = strip(String(e?.id ?? ''))
+        .replace(/[^a-z0-9_-]/g, '')
+        .slice(0, 40);
+      if (!id) id = `item-${i + 1}`;
+      while (ids.has(id)) id = `${id}-x`;
+      ids.add(id);
+      let keywords = (Array.isArray(e?.keywords) ? e.keywords : [])
+        .map((k) => strip(String(k)).replace(/[^a-z0-9]/g, ''))
+        .filter((k) => k.length >= 2 && k.length <= 30);
+      if (!keywords.length)
+        keywords = strip(text)
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 4);
+      keywords = [...new Set(keywords)].slice(0, 30);
+      if (!keywords.length)
+        errors.push(
+          `${label}, assunto ${i + 1}: informe ao menos uma palavra-chave.`,
+        );
+      else kb.push({ id, keywords, text });
+    });
+    return kb;
+  }
+
+  private validateGuidance(
+    g: { tone?: string; instructions?: string },
+    errors: string[],
+    label: string,
+  ): { tone: ToneKey; instructions: string } {
+    const tone = (g?.tone ?? 'padrao') as ToneKey;
+    if (!(tone in TONES)) errors.push(`${label}: tom desconhecido.`);
+    const instructions = String(g?.instructions ?? '').trim();
+    if (instructions.length > 1500)
+      errors.push(`${label}: as instruções passam de 1500 caracteres.`);
+    return { tone: tone in TONES ? tone : 'padrao', instructions };
   }
 
   private validateFlows(input: unknown, errors: string[]): CustomFlow[] {
@@ -384,6 +404,15 @@ export class ChatbotContentService implements OnModuleInit {
         ativo,
         menuOpcao: opcao,
         nos,
+        reescrever: raw?.reescrever === true,
+        guidance: this.validateGuidance(
+          raw?.guidance ?? {},
+          errors,
+          `${label} — jeito de falar`,
+        ),
+        kb: raw?.kb
+          ? this.validateKb(raw.kb, errors, `${label} — o que ela sabe`)
+          : [],
       };
       for (const p of checkFlow(flow)) errors.push(`${label}: ${p}`);
       out.push(flow);

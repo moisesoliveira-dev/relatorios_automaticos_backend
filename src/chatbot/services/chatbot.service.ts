@@ -14,7 +14,13 @@ import {
 } from '../../gosac/media-url.util';
 import { MESSAGES } from '../domain/chatbot.messages';
 import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
-import { CustomResult, startFlow, stepFlow } from '../domain/custom-flow';
+import {
+  CustomResult,
+  promptOf,
+  startFlow,
+  stepFlow,
+} from '../domain/custom-flow';
+import type { Guidance } from '../domain/content-runtime';
 import { decide, restartDecision } from '../domain/chatbot.flow';
 import { parseInput } from '../domain/input-parser';
 import { renderSlotList } from '../domain/scheduling';
@@ -381,9 +387,14 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   private async send(
     conv: ChatbotConversation,
     texts: string[],
+    flowId?: string,
   ): Promise<void> {
     if (!texts.length) return;
-    const bubbles = await this.humanizer.compose(conv, texts);
+    const bubbles = await this.humanizer.compose(
+      conv,
+      texts,
+      flowId ?? (conv.step === 'CUSTOM' ? conv.custom?.flowId : undefined),
+    );
     await this.messenger.sendTexts(conv.ticketId, bubbles);
     this.pushHistory(conv, { role: 'bot', text: clip(bubbles.join(' ')) });
   }
@@ -502,7 +513,30 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
           maxInvalid: this.appConfig.chatbot.maxInvalid,
         },
       );
-      return this.apply(conv, this.customDecision(conv, r));
+      // Pergunta do cliente que não era a resposta esperada: a IA responde com a base DESTE fluxo
+      // (jeito de falar do fluxo, revisada) e a conversa retoma de onde estava.
+      if (
+        r.invalido &&
+        text &&
+        flow.kb?.length &&
+        this.agents.available &&
+        this.consumeAiCall(conv)
+      ) {
+        const answer = await this.agents.answerFaq(
+          text,
+          flow.kb,
+          flow.guidance as Guidance | undefined,
+        );
+        const retomar = promptOf(flow, state.custom);
+        if (answer && retomar)
+          return this.apply(conv, {
+            patch: { step: 'CUSTOM', custom: state.custom, invalidCount: 0 },
+            replies: [answer, retomar],
+            effects: [],
+            flowId: flow.id,
+          });
+      }
+      return this.apply(conv, this.customDecision(conv, r, flow.id));
     }
 
     let input: FlowInput | null = parseInput(state, text, hasFile);
@@ -516,7 +550,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       if (flow)
         return this.apply(
           conv,
-          this.customDecision(conv, startFlow(flow, conv.nome)),
+          this.customDecision(conv, startFlow(flow, conv.nome), flow.id),
         );
     }
 
@@ -529,13 +563,18 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Converte o resultado do motor de fluxo personalizado numa Decision do motor principal. */
-  private customDecision(conv: ChatbotConversation, r: CustomResult): Decision {
+  private customDecision(
+    conv: ChatbotConversation,
+    r: CustomResult,
+    flowId: string,
+  ): Decision {
     const effects: Effect[] = r.effects.map((e) =>
       e.type === 'handoff'
         ? {
             type: 'handoff',
             mensagem: e.comNome ? 'redirecionando_com_nome' : 'redirecionando',
             texto: e.texto,
+            flowId,
           }
         : e,
     );
@@ -545,9 +584,15 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         patch: { step: 'CUSTOM', custom: r.state, invalidCount: 0, ...nome },
         replies: r.replies,
         effects,
+        flowId,
       };
     if (r.saiu === 'encaminhado')
-      return { patch: { custom: null, ...nome }, replies: r.replies, effects };
+      return {
+        patch: { custom: null, ...nome },
+        replies: r.replies,
+        effects,
+        flowId,
+      };
     // Voltou ao menu. Se houve ações (ex.: criar pasta), o nome precisa sobreviver até elas rodarem.
     const d = restartDecision();
     return {
@@ -557,6 +602,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       },
       replies: [...r.replies, ...d.replies],
       effects,
+      flowId,
     };
   }
 
@@ -574,7 +620,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     this.applyPatch(conv, decision.patch);
     await this.repo.save(conv); // persiste ANTES de enviar: um reenvio do webhook não repete a resposta
-    await this.send(conv, decision.replies);
+    await this.send(conv, decision.replies, decision.flowId);
     for (const effect of decision.effects) await this.runEffect(conv, effect);
     await this.repo.save(conv);
   }
@@ -641,6 +687,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
           effect.mensagem,
           effect.reutilizarAtendente,
           effect.texto,
+          effect.flowId,
         );
     }
   }
@@ -694,8 +741,12 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     kind: Parameters<ChatbotHandoffService['execute']>[1],
     reutilizar = false,
     texto?: string,
+    flowId?: string,
   ): Promise<void> {
-    const result = await this.handoff.execute(conv, kind, reutilizar, texto);
+    const result =
+      texto !== undefined || flowId
+        ? await this.handoff.execute(conv, kind, reutilizar, texto, flowId)
+        : await this.handoff.execute(conv, kind, reutilizar);
     conv.step = 'HUMANO';
     conv.emAtendimento = true;
     conv.finalizouTriagem = true;
@@ -741,6 +792,20 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+  }
+
+  /** Conta uma chamada de IA no teto diário do cliente. false = estourou o teto. */
+  private consumeAiCall(conv: ChatbotConversation): boolean {
+    const today = new Date(Date.now() - 4 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
+    if (conv.aiCallsDate !== today) {
+      conv.aiCallsDate = today;
+      conv.aiCallsDay = 0;
+    }
+    if (conv.aiCallsDay >= this.appConfig.chatbot.aiDailyLimit) return false;
+    conv.aiCallsDay++;
+    return true;
   }
 
   private async interpretWithAi(

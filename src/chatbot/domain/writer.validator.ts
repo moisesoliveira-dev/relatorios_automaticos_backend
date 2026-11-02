@@ -77,6 +77,12 @@ export function validateWriterOutput(
     if (!found) return { ok: false, motivo: `ponto_ausente:${point.anyOf[0]}` };
   }
 
+  if (c.spec.perguntar && !written.includes('?'))
+    return { ok: false, motivo: 'pergunta_ausente' };
+  for (const m of c.spec.manter ?? [])
+    if (!haystack.includes(m))
+      return { ok: false, motivo: `ponto_ausente:${m}` };
+
   if (
     c.spec.nomeObrigatorio &&
     c.nome &&

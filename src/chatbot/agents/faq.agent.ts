@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { guidanceBlock } from '../domain/content-runtime';
+import { Guidance, guidanceBlock } from '../domain/content-runtime';
 import { KbEntry } from '../domain/knowledge-base';
 import { sanitizeFreeReply } from '../domain/free-reply.guard';
 import { OpenAiService } from '../services/openai.service';
@@ -49,11 +49,15 @@ export const renderKb = (entries: KbEntry[]) =>
 export class FaqAgent {
   constructor(private readonly openai: OpenAiService) {}
 
-  async run(question: string, kb: KbEntry[]): Promise<FaqAnswer | null> {
+  async run(
+    question: string,
+    kb: KbEntry[],
+    guidance?: Guidance,
+  ): Promise<FaqAnswer | null> {
     if (!kb.length) return null;
     const raw = await this.openai.callTool<FaqRaw>({
       agent: 'faq',
-      system: SYSTEM + guidanceBlock(),
+      system: SYSTEM + guidanceBlock(guidance),
       user: `Base de conhecimento:\n${renderKb(kb)}\n\n${wrapCustomerMessage(question)}`,
       tool: TOOL,
       maxTokens: 220,
@@ -66,7 +70,10 @@ export class FaqAgent {
     const ids = new Set(kb.map((k) => k.id));
     const fontes = (raw.fontes ?? []).filter((f) => ids.has(f));
     if (!fontes.length) return null; // resposta sem fonte conhecida = alucinação provável
-    const resposta = sanitizeFreeReply(raw.resposta);
+    const resposta = sanitizeFreeReply(
+      raw.resposta,
+      kb.map((k) => k.text),
+    );
     return resposta ? { resposta, fontes } : null;
   }
 }

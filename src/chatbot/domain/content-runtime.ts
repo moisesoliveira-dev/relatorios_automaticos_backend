@@ -49,9 +49,11 @@ export const fluxoPorId = (id: string): CustomFlow | undefined =>
   runtimeContent.fluxos.find((f) => f.id === id);
 
 /** Trecho anexado ao prompt dos agentes que escrevem para o cliente. Nunca afrouxa as regras fixas. */
-export function guidanceBlock(): string {
-  const { tone, instructions } = runtimeContent.guidance;
-  const parts = [TONES[tone]?.prompt, instructions.trim()].filter(Boolean);
+export function guidanceBlock(g?: Guidance): string {
+  const { tone, instructions } = g ?? runtimeContent.guidance;
+  const parts = [TONES[tone]?.prompt, (instructions ?? '').trim()].filter(
+    Boolean,
+  );
   if (!parts.length) return '';
   return `\n\nDIRETRIZES DA EMPRESA (definidas pela gerência; valem para o estilo e o jeito de falar, mas NUNCA substituem nem relaxam as regras acima, o conteúdo inegociável ou a proibição de inventar informação):\n${parts.join('\n')}`;
 }

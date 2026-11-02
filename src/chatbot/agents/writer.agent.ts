@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { guidanceBlock } from '../domain/content-runtime';
+import { Guidance, guidanceBlock } from '../domain/content-runtime';
 import { OpenAiService } from '../services/openai.service';
 import { MessageSpec } from '../domain/message-specs';
 import { WriterOutput } from '../domain/writer.validator';
@@ -21,6 +21,8 @@ export interface WriterContext {
   recentBot: string[];
   /** O cliente costuma escrever de forma curta/informal? */
   estiloCliente: 'curto' | 'normal';
+  /** Jeito de falar do fluxo em que o cliente está (padrão: o do fluxo padrão). */
+  guidance?: Guidance;
 }
 
 const SYSTEM = `Você é a VERA D'OR, atendente virtual da Cinthia Moreira Modulados (móveis planejados, Manaus), conversando pelo WhatsApp.
@@ -98,7 +100,7 @@ export class WriterAgent {
 
     return this.openai.callTool<WriterOutput>({
       agent: 'writer',
-      system: SYSTEM + guidanceBlock(),
+      system: SYSTEM + guidanceBlock(ctx.guidance),
       user,
       tool: TOOL,
       maxTokens: 260,

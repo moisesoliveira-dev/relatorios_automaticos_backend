@@ -32,6 +32,7 @@ const FORBIDDEN_PATTERNS: RegExp[] = [
 
 export function sanitizeFreeReply(
   raw: string | null | undefined,
+  kbTexts: string[] = [],
 ): string | null {
   if (!raw) return null;
   let text = raw
@@ -45,7 +46,10 @@ export function sanitizeFreeReply(
   const numbers = text.match(/\d{3,}/g) ?? [];
   if (
     numbers.some(
-      (n) => !ALLOWED_NUMBER_TOKENS.has(n) && !extraNumberTokens.has(n),
+      (n) =>
+        !ALLOWED_NUMBER_TOKENS.has(n) &&
+        !extraNumberTokens.has(n) &&
+        !kbTexts.some((t) => t.includes(n)),
     )
   )
     return null;

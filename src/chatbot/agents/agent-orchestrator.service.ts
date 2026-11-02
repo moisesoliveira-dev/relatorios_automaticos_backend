@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { FlowInput } from '../domain/chatbot.types';
-import { retrieveKb } from '../domain/knowledge-base';
+import { KbEntry, retrieveKb } from '../domain/knowledge-base';
+import { Guidance } from '../domain/content-runtime';
 import { prefilter } from '../domain/scope.prefilter';
 import { OpenAiService } from '../services/openai.service';
 import { AgentContext } from './agent.types';
@@ -117,5 +118,23 @@ export class AgentOrchestrator {
       kind: 'duvida',
       resposta: answer.resposta,
     });
+  }
+
+  /**
+   * Dúvida feita dentro de um fluxo personalizado: responde só com a base DAQUELE fluxo, com o
+   * jeito de falar dele, e só se o verificador aprovar. Devolve null quando não há resposta segura.
+   */
+  async answerFaq(
+    message: string,
+    kb: KbEntry[],
+    guidance?: Guidance,
+  ): Promise<string | null> {
+    if (!this.available || prefilter(message).blocked) return null;
+    const hits = retrieveKb(message, 3, kb);
+    const answer = await this.faq.run(message, hits, guidance);
+    if (!answer) return null;
+    const sources = hits.filter((k) => answer.fontes.includes(k.id));
+    const approved = await this.verifier.run(message, answer.resposta, sources);
+    return approved ? answer.resposta : null;
   }
 }

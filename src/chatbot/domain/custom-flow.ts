@@ -33,6 +33,16 @@ export interface FlowNode {
   acao?: ToolKey;
 }
 
+export interface FlowGuidance {
+  tone: string;
+  instructions: string;
+}
+export interface FlowKbEntry {
+  id: string;
+  keywords: string[];
+  text: string;
+}
+
 export interface CustomFlow {
   id: string;
   nome: string;
@@ -42,6 +52,12 @@ export interface CustomFlow {
   menuOpcao: number | null;
   /** O fluxo começa no primeiro bloco. */
   nos: FlowNode[];
+  /** Jeito de falar deste fluxo (vale para a IA quando ela escreve/responde nele). */
+  guidance?: FlowGuidance;
+  /** A IA reescreve os textos dos blocos no tom deste fluxo (revisados antes de enviar). */
+  reescrever?: boolean;
+  /** O que a IA pode responder quando o cliente faz uma pergunta dentro deste fluxo. */
+  kb?: FlowKbEntry[];
 }
 
 export interface CustomState {
@@ -61,7 +77,7 @@ export type CustomEffect =
       titulo: string;
       itens: Array<{ rotulo: string; valor: string }>;
     }
-  | { type: 'handoff'; comNome: boolean; texto?: string };
+  | { type: 'handoff'; comNome: boolean; texto?: string; flowId?: string };
 
 export interface CustomResult {
   /** null = o cliente saiu do fluxo (veja `saiu`). */
@@ -71,6 +87,8 @@ export interface CustomResult {
   /** Nome informado pelo cliente (grava no cadastro da conversa). */
   nome?: string;
   saiu: 'menu' | 'encaminhado' | null;
+  /** O texto não serviu como resposta (e ainda não chegou ao limite): candidato a ser tratado como dúvida. */
+  invalido?: boolean;
 }
 
 export const WAITING: NodeType[] = ['opcoes', 'pergunta', 'arquivos'];
@@ -323,7 +341,14 @@ export function stepFlow(
         : [],
     effects: [],
     saiu: null,
+    invalido: true,
   };
+}
+
+/** Texto de apresentação do bloco em que o cliente está (para retomar depois de responder uma dúvida). */
+export function promptOf(flow: CustomFlow, state: CustomState): string | null {
+  const node = byId(flow, state.nodeId);
+  return node && WAITING.includes(node.tipo) ? prompt(node, state.vars) : null;
 }
 
 // ───────────────────────── validação (usada ao salvar rascunho) ─────────────────────────
