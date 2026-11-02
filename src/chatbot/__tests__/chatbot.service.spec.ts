@@ -3,6 +3,7 @@ import {
   Inbound,
   parseWebhook,
 } from '../services/chatbot.service';
+import { FakeInbox, FakeLock } from './support/fakes';
 import { MESSAGES } from '../domain/chatbot.messages';
 
 type Row = Record<string, any>;
@@ -43,6 +44,8 @@ function setup(over: { ai?: any; chatbot?: Record<string, unknown> } = {}) {
     counters: {},
     resolve: jest.fn(async (): Promise<any> => ({ kind: 'invalid' })),
   };
+  const inbox = new FakeInbox();
+  const lock = new FakeLock();
   const humanizer = {
     compose: jest.fn(async (_c: unknown, texts: string[]) => texts),
     counters: {},
@@ -88,6 +91,8 @@ function setup(over: { ai?: any; chatbot?: Record<string, unknown> } = {}) {
     handoff as any,
     drive as any,
     scheduling as any,
+    inbox as any,
+    lock as any,
   );
   let n = 0;
   const msg = (text: string, o: Partial<Inbound> = {}): Inbound => ({
@@ -392,10 +397,7 @@ describe('ChatbotService.receive — filtros do webhook', () => {
       ...data,
     },
   });
-  const flush = (service: any) =>
-    new Promise((r) => setTimeout(r, 40)).then(() =>
-      Promise.all([...service.locks.values()]),
-    );
+  const flush = (_service?: any) => new Promise((r) => setTimeout(r, 200));
 
   it('ignora grupos, hsm/transfer/impostor e desligado', async () => {
     const t = setup();

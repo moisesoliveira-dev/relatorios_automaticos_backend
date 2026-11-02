@@ -1,5 +1,10 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import { Cron, Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThan, Not, Repository } from 'typeorm';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
@@ -30,6 +35,8 @@ import { ChatbotHandoffService } from './chatbot-handoff.service';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { ChatbotDriveService } from './chatbot-drive.service';
 import { ChatbotSchedulingService } from './chatbot-scheduling.service';
+import { ChatbotInboxService, PendingMessage } from './chatbot-inbox.service';
+import { ChatbotLockService } from './chatbot-lock.service';
 
 export interface Inbound {
   messageId?: string;
@@ -104,10 +111,14 @@ const sameManausDay = (a: Date, b: Date) => {
 const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 @Injectable()
-export class ChatbotService implements OnModuleDestroy {
+export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatbotService.name);
-  private readonly batches = new Map<number, Batch>();
-  private readonly locks = new Map<number, Promise<unknown>>();
+  /** Timers de debounce desta instância (a fila em si está no Postgres). */
+  private readonly timers = new Map<number, NodeJS.Timeout>();
+  private readonly retries = new Map<number, number>();
+  private activeDrains = 0;
+  private readonly maxDrains = 4;
+  private shuttingDown = false;
   private readonly errorCount = new Map<number, number>();
   private readonly allowedHosts: string[];
 
@@ -124,6 +135,8 @@ export class ChatbotService implements OnModuleDestroy {
     private readonly handoff: ChatbotHandoffService,
     private readonly drive: ChatbotDriveService,
     private readonly scheduling: ChatbotSchedulingService,
+    private readonly inbox: ChatbotInboxService,
+    private readonly lock: ChatbotLockService,
   ) {
     this.allowedHosts = parseAllowedHosts(
       this.appConfig.gosacApi.baseUrl,
@@ -135,8 +148,15 @@ export class ChatbotService implements OnModuleDestroy {
     return this.appConfig.chatbot.enabled;
   }
 
+  /** Ao subir, retoma o que ficou na caixa de entrada (reinício/queda no meio de um atendimento). */
+  onModuleInit() {
+    if (this.enabled) void this.sweep();
+  }
+
   onModuleDestroy() {
-    this.batches.forEach((b) => b.timer && clearTimeout(b.timer));
+    this.shuttingDown = true;
+    this.timers.forEach((t) => clearTimeout(t));
+    this.timers.clear();
   }
 
   // ───────────────────────── entrada ─────────────────────────
@@ -152,11 +172,13 @@ export class ChatbotService implements OnModuleDestroy {
       if (msg.fromMe) {
         // Só interessa saber se um humano assumiu a conversa.
         if (AGENT_SIGNATURE.test(msg.body.trim())) {
-          void this.run(msg.contactId, () => this.markHumanActive(msg));
+          void this.lock
+            .withLock(msg.contactId, () => this.markHumanActive(msg))
+            .catch((error) => this.onError(msg.contactId, error));
         }
         return;
       }
-      this.enqueue(msg);
+      void this.ingest(msg);
     } catch (error) {
       this.logger.error(
         `Webhook ignorado por erro: ${(error as Error).message}`,
@@ -164,43 +186,123 @@ export class ChatbotService implements OnModuleDestroy {
     }
   }
 
-  private enqueue(msg: Inbound): void {
-    const hasFile =
-      !!msg.mediaPath && !!msg.mediaType && !NON_FILE_MEDIA.has(msg.mediaType);
-    const isAudio = msg.mediaType === 'ptt' || msg.mediaType === 'audio';
+  /** Grava na caixa de entrada (dedupe entre instâncias) e agenda o processamento após o debounce. */
+  private async ingest(msg: Inbound): Promise<void> {
+    try {
+      const inserted = await this.inbox.add(msg);
+      if (inserted)
+        this.schedule(msg.contactId, this.appConfig.chatbot.debounceMs);
+    } catch (error) {
+      this.logger.error(
+        `Falha ao gravar mensagem na caixa de entrada: ${(error as Error).message}`,
+      );
+    }
+  }
 
-    const batch = this.batches.get(msg.contactId) ?? {
+  private schedule(contactId: number, delayMs: number): void {
+    if (this.shuttingDown) return;
+    const existing = this.timers.get(contactId);
+    if (existing) clearTimeout(existing);
+    this.timers.set(
+      contactId,
+      setTimeout(() => {
+        this.timers.delete(contactId);
+        void this.drain(contactId);
+      }, delayMs),
+    );
+  }
+
+  /**
+   * Esvazia a caixa de entrada de um cliente: pega a trava (uma instância por cliente), espera o
+   * cliente ficar quieto (debounce), junta as mensagens e processa. Repete até não sobrar nada.
+   */
+  async drain(contactId: number): Promise<void> {
+    if (this.shuttingDown) return;
+    if (this.activeDrains >= this.maxDrains)
+      return this.schedule(contactId, 500);
+
+    const release = await this.lock.tryLock(contactId).catch((error) => {
+      this.logger.error(
+        `Falha ao obter trava do contato ${contactId}: ${(error as Error).message}`,
+      );
+      return null;
+    });
+    if (!release) {
+      // Outra instância está atendendo este cliente e vai esvaziar a fila; confere de novo em instantes.
+      const tries = (this.retries.get(contactId) ?? 0) + 1;
+      if (tries <= 5) {
+        this.retries.set(contactId, tries);
+        this.schedule(contactId, 1500);
+      } else this.retries.delete(contactId);
+      return;
+    }
+
+    this.retries.delete(contactId);
+    this.activeDrains++;
+    try {
+      for (let guard = 0; guard < 50 && !this.shuttingDown; guard++) {
+        const rows = await this.inbox.pending(contactId);
+        if (!rows.length) break;
+
+        const quietFor =
+          Date.now() - Math.max(...rows.map((r) => r.receivedAt.getTime()));
+        const wait = this.appConfig.chatbot.debounceMs - quietFor;
+        if (wait > 0) {
+          await new Promise((r) => setTimeout(r, wait));
+          continue; // chegou mais coisa? relê e junta
+        }
+
+        try {
+          await this.process(this.toBatch(rows));
+        } catch (error) {
+          await this.onError(contactId, error);
+        } finally {
+          // Marca como feito mesmo se falhou: evita repetir para sempre uma mensagem problemática
+          // (o onError já entrega o cliente a um humano na segunda falha seguida).
+          await this.inbox.markProcessed(rows.map((r) => r.id));
+        }
+      }
+    } finally {
+      this.activeDrains--;
+      await release();
+    }
+  }
+
+  private toBatch(rows: PendingMessage[]): Batch {
+    const batch: Batch = {
       texts: [],
       files: [],
       audio: false,
-      last: msg,
+      last: rows[rows.length - 1].msg,
     };
-    if (msg.body.trim()) batch.texts.push(msg.body);
-    if (hasFile) batch.files.push(msg);
-    if (isAudio) batch.audio = true;
-    batch.last = msg;
-
-    if (batch.timer) clearTimeout(batch.timer);
-    // Debounce: junta mensagens picadas do cliente em um único processamento.
-    batch.timer = setTimeout(() => {
-      this.batches.delete(msg.contactId);
-      void this.run(msg.contactId, () => this.process(batch));
-    }, this.appConfig.chatbot.debounceMs);
-    this.batches.set(msg.contactId, batch);
+    for (const { msg } of rows) {
+      const hasFile =
+        !!msg.mediaPath &&
+        !!msg.mediaType &&
+        !NON_FILE_MEDIA.has(msg.mediaType);
+      if (msg.body.trim()) batch.texts.push(msg.body);
+      if (hasFile) batch.files.push(msg);
+      if (msg.mediaType === 'ptt' || msg.mediaType === 'audio')
+        batch.audio = true;
+    }
+    return batch;
   }
 
-  /** Processa um contato por vez (evita corrida entre mensagens do mesmo cliente). */
-  private run<T>(contactId: number, fn: () => Promise<T>): Promise<T | void> {
-    const previous = this.locks.get(contactId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => undefined)
-      .then(fn)
-      .catch((error) => this.onError(contactId, error));
-    this.locks.set(contactId, next);
-    void next.finally(() => {
-      if (this.locks.get(contactId) === next) this.locks.delete(contactId);
-    });
-    return next as Promise<T | void>;
+  /** Rede de segurança: retoma clientes com mensagens paradas (queda, reinício, trava ocupada demais). */
+  @Interval(30_000)
+  async sweep(): Promise<void> {
+    if (!this.enabled || this.shuttingDown) return;
+    try {
+      const stale = await this.inbox.staleContacts(
+        this.appConfig.chatbot.debounceMs + 5_000,
+      );
+      for (const contactId of stale)
+        if (!this.timers.has(contactId)) this.schedule(contactId, 200);
+    } catch (error) {
+      this.logger.warn(
+        `Varredura da caixa de entrada falhou: ${(error as Error).message}`,
+      );
+    }
   }
 
   private async onError(contactId: number, error: unknown): Promise<void> {
@@ -598,6 +700,7 @@ export class ChatbotService implements OnModuleDestroy {
     const cut = new Date(Date.now() - 90 * 24 * 3600_000);
     const res = await this.repo.delete({ updatedAt: LessThan(cut) });
     await this.scheduling.cleanup();
+    await this.inbox.purge();
     if (res.affected)
       this.logger.log(`Limpeza: ${res.affected} conversa(s) antigas removidas`);
   }

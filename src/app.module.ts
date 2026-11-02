@@ -27,6 +27,7 @@ import { PonttaRotation } from './rotation/entities/pontta-rotation.entity';
 import { AutoTaskProcessedOrder } from './auto-tasks/entities/auto-task-processed-order.entity';
 import { ChatbotConversation } from './chatbot/entities/chatbot-conversation.entity';
 import { ChatbotBookedSlot } from './chatbot/entities/chatbot-booked-slot.entity';
+import { ChatbotInboxMessage } from './chatbot/entities/chatbot-inbox-message.entity';
 import { join } from 'path';
 
 function parseDatabaseUrl(databaseUrl: string) {
@@ -59,6 +60,7 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
       AutoTaskProcessedOrder,
       ChatbotConversation,
       ChatbotBookedSlot,
+      ChatbotInboxMessage,
     ],
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
     // Migrations pendentes rodam no boot (todas usam IF NOT EXISTS)

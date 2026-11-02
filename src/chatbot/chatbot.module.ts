@@ -4,6 +4,9 @@ import { PonttaModule } from '../pontta/pontta.module';
 import { DriveModule } from '../drive/drive.module';
 import { SettingsModule } from '../settings/settings.module';
 import { ChatbotConversation } from './entities/chatbot-conversation.entity';
+import { ChatbotInboxMessage } from './entities/chatbot-inbox-message.entity';
+import { ChatbotInboxService } from './services/chatbot-inbox.service';
+import { ChatbotLockService } from './services/chatbot-lock.service';
 import { ChatbotBookedSlot } from './entities/chatbot-booked-slot.entity';
 import { ChatbotController } from './chatbot.controller';
 import { ChatbotService } from './services/chatbot.service';
@@ -23,7 +26,11 @@ import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ChatbotConversation, ChatbotBookedSlot]),
+    TypeOrmModule.forFeature([
+      ChatbotConversation,
+      ChatbotBookedSlot,
+      ChatbotInboxMessage,
+    ]),
     PonttaModule,
     DriveModule,
     SettingsModule,
@@ -37,6 +44,8 @@ import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
     ChatbotRotationService,
     ChatbotDriveService,
     ChatbotSchedulingService,
+    ChatbotInboxService,
+    ChatbotLockService,
     AgentOrchestrator,
     ScopeAgent,
     InterpreterAgent,
