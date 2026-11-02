@@ -1,3 +1,4 @@
+import { isAllowedMediaUrl, parseAllowedHosts } from './media-url.util';
 import { Injectable, HttpException, HttpStatus, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -410,7 +411,7 @@ export class GosacService {
      * Estrutura real do payload: { data: { mediaUrl, mediaPath, body, ticket: { id } }, type }
      */
     async handleWebhook(payload: any): Promise<{ status: string; message: string }> {
-        console.log('📨 Webhook GOSAC recebido:', JSON.stringify(payload).substring(0, 500));
+        console.log('📨 Webhook GOSAC recebido, ticket:', payload?.data?.ticket?.id ?? payload?.data?.ticketId ?? payload?.ticketId);
 
         // O GOSAC envolve tudo em payload.data
         const data = payload?.data ?? payload;
@@ -455,22 +456,30 @@ export class GosacService {
 
         try {
             this.ensureGosacConfigured();
-            // Baixa o arquivo do GOSAC
-            console.log(`⬇️ Baixando arquivo de: ${fileUrl}`);
+
+            // Anti-SSRF: só baixa de hosts permitidos e só envia a chave ao host do GOSAC
+            const allowedHosts = parseAllowedHosts(this.gosacBaseUrl, process.env.GOSAC_MEDIA_ALLOWED_HOSTS);
+            if (!isAllowedMediaUrl(fileUrl, allowedHosts)) {
+                console.warn('🚫 [webhook] mediaUrl fora da lista de hosts permitidos, ignorando.');
+                return { status: 'ignored', message: 'Host de mídia não permitido' };
+            }
+            const isGosacHost = new URL(fileUrl).hostname.toLowerCase() === new URL(this.gosacBaseUrl).hostname.toLowerCase();
+
+            console.log(`⬇️ Baixando mídia do ticket #${ticketId}`);
             const response = await axios.get(fileUrl, {
                 responseType: 'arraybuffer',
-                headers: {
-                    Authorization: `INTEGRATION ${this.gosacApiKey}`,
-                },
+                headers: isGosacHost ? { Authorization: `INTEGRATION ${this.gosacApiKey}` } : {},
                 timeout: 30000,
+                maxRedirects: 0,
+                maxContentLength: 50 * 1024 * 1024,
             });
 
             const fileBuffer = Buffer.from(response.data);
-            const contentType = response.headers['content-type'] || 'application/octet-stream';
+            const contentType = String(response.headers['content-type'] || 'application/octet-stream');
 
             // Determina o nome do arquivo
             let filename = mediaName;
-            const contentDisposition = response.headers['content-disposition'];
+            const contentDisposition = String(response.headers['content-disposition'] ?? '');
             if (contentDisposition) {
                 const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
                 if (match) filename = match[1].replace(/['"]/g, '');

@@ -74,7 +74,7 @@ export class MontadorPdfService {
     }
 
     async generatePdf(data: MontadorPdfData): Promise<Buffer> {
-        this.logger.log(`[MontadorPdf] Dados recebidos para renderização: ${JSON.stringify(data)}`);
+        this.logger.log(`[MontadorPdf] Renderizando PDF (${data.environments.length} ambiente(s))`);
 
         const previewValues = {
             customerName: data.customerName,
@@ -103,7 +103,9 @@ export class MontadorPdfService {
             });
 
             const page = await browser.newPage();
-            await page.setContent(html, { waitUntil: 'networkidle0' });
+            // O PDF é HTML estático: sem JS, uma injeção não consegue executar código no Chromium
+            await page.setJavaScriptEnabled(false);
+            await page.setContent(html, { waitUntil: 'load' });
 
             const pdfUint8 = await page.pdf({
                 format: 'A4',
@@ -242,15 +244,15 @@ export class MontadorPdfService {
         <div class="dates-grid">
             <div class="date-box">
                 <div class="date-label">Entrega de Material</div>
-                <div class="date-value">${data.deliveryDate || '____/____/________'}</div>
+                <div class="date-value">${this.escapeHtml(data.deliveryDate || '____/____/________')}</div>
             </div>
             <div class="date-box">
                 <div class="date-label">Início de Montagem</div>
-                <div class="date-value">${data.assemblyStartDate || '____/____/________'}</div>
+                <div class="date-value">${this.escapeHtml(data.assemblyStartDate || '____/____/________')}</div>
             </div>
             <div class="date-box">
                 <div class="date-label">Finalização de Montagem</div>
-                <div class="date-value">${data.assemblyEndDate || '____/____/________'}</div>
+                <div class="date-value">${this.escapeHtml(data.assemblyEndDate || '____/____/________')}</div>
             </div>
         </div>
     </div>

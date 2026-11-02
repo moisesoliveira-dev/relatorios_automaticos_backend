@@ -36,7 +36,7 @@ export class AutoTasksDatabaseService {
 
       this.pool = new Pool({
         connectionString,
-        ssl: this.appConfig.isProduction ? { rejectUnauthorized: false } : false,
+        ssl: this.appConfig.isProduction ? { rejectUnauthorized: this.appConfig.dbSslRejectUnauthorized } : false,
       });
     }
     return this.pool;

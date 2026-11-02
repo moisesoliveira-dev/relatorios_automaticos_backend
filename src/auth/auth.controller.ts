@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Get, UseGuards, Request } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { LoginDto, CreateMasterDto, CompleteRegistrationDto, SelfRegisterDto } from '../users/dto/user.dto';
+import { LoginDto, CreateMasterDto, CompleteRegistrationDto, SelfRegisterDto, ValidateInviteCodeDto } from '../users/dto/user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { UsersService } from '../users/users.service';
 
@@ -11,6 +12,8 @@ export class AuthController {
         private usersService: UsersService,
     ) { }
 
+    // Limites por IP (janela de 1 min) contra força bruta
+    @Throttle({ default: { limit: 10, ttl: 60_000 } })
     @Post('login')
     async login(@Body() loginDto: LoginDto) {
         return this.authService.login(loginDto);
@@ -21,21 +24,25 @@ export class AuthController {
         return this.authService.checkMasterExists();
     }
 
+    @Throttle({ default: { limit: 5, ttl: 60_000 } })
     @Post('register-master')
     async registerMaster(@Body() createMasterDto: CreateMasterDto) {
         return this.authService.registerMaster(createMasterDto);
     }
 
+    @Throttle({ default: { limit: 5, ttl: 60_000 } })
     @Post('validate-invite-code')
-    async validateInviteCode(@Body() body: { code: string }) {
+    async validateInviteCode(@Body() body: ValidateInviteCodeDto) {
         return this.authService.validateInviteCode(body.code);
     }
 
+    @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
     @Post('self-register')
     async selfRegister(@Body() dto: SelfRegisterDto) {
         return this.usersService.selfRegister(dto);
     }
 
+    @Throttle({ default: { limit: 5, ttl: 60_000 } })
     @Post('complete-registration')
     async completeRegistration(@Body() dto: CompleteRegistrationDto) {
         return this.authService.completeRegistration(dto);

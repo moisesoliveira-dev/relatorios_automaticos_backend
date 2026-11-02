@@ -1,4 +1,6 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
+import { AppConfigService } from '../infrastructure/config/app-config.service';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { LoginDto, CreateMasterDto, CompleteRegistrationDto } from '../users/dto/user.dto';
@@ -27,6 +29,7 @@ export class AuthService {
     constructor(
         private usersService: UsersService,
         private jwtService: JwtService,
+        private appConfig: AppConfigService,
     ) { }
 
     async validateUser(email: string, password: string): Promise<User | null> {
@@ -75,6 +78,15 @@ export class AuthService {
     }
 
     async registerMaster(createMasterDto: CreateMasterDto): Promise<AuthResponse> {
+        // Se MASTER_SETUP_TOKEN estiver definido, o primeiro cadastro exige esse token
+        const expected = this.appConfig.masterSetupToken;
+        if (expected) {
+            const a = Buffer.from(createMasterDto.setupToken ?? '');
+            const b = Buffer.from(expected);
+            if (a.length !== b.length || !timingSafeEqual(a, b)) {
+                throw new ForbiddenException('Token de configuração inválido');
+            }
+        }
         const user = await this.usersService.createMaster(createMasterDto);
 
         const payload: JwtPayload = {

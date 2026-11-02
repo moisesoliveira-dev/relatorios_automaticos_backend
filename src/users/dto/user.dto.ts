@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsArray, IsBoolean, ArrayMinSize } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsEnum, IsArray, IsBoolean, ArrayMinSize, Matches } from 'class-validator';
 import { UserRole, UserStatus } from '../entities/user.entity';
 
 export class CreateUserDto {
@@ -6,7 +6,8 @@ export class CreateUserDto {
     email: string;
 
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
     password: string;
 
     @IsString()
@@ -28,7 +29,8 @@ export class SelfRegisterDto {
     email: string;
 
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
     password: string;
 
     @IsString()
@@ -37,11 +39,16 @@ export class SelfRegisterDto {
 }
 
 export class CreateMasterDto {
+    @IsOptional()
+    @IsString()
+    setupToken?: string;
+
     @IsEmail()
     email: string;
 
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
     password: string;
 
     @IsString()
@@ -65,7 +72,7 @@ export class InviteUserDto {
 
 export class CompleteRegistrationDto {
     @IsString()
-    @MinLength(6)
+    @Matches(/^\d{6}$/, { message: 'Código de convite inválido' })
     code: string;
 
     @IsString()
@@ -73,7 +80,8 @@ export class CompleteRegistrationDto {
     name: string;
 
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
     password: string;
 }
 
@@ -85,7 +93,8 @@ export class UpdateUserDto {
 
     @IsOptional()
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
     password?: string;
 
     @IsOptional()
@@ -123,4 +132,27 @@ export class LoginDto {
 
     @IsString()
     password: string;
+}
+
+export class ValidateInviteCodeDto {
+    @IsString()
+    @Matches(/^\d{6}$/, { message: 'Código de convite inválido' })
+    code: string;
+}
+
+export class UpdateProfileNameDto {
+    @IsString()
+    @MinLength(2)
+    @MaxLength(120)
+    name: string;
+}
+
+export class UpdateProfilePasswordDto {
+    @IsString()
+    currentPassword: string;
+
+    @IsString()
+    @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
+    @MaxLength(72)
+    newPassword: string;
 }

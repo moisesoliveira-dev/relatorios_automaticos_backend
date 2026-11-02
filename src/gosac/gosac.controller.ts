@@ -12,6 +12,7 @@ import {
     Res,
     UploadedFile,
     UseInterceptors,
+    BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -20,6 +21,7 @@ import { TabsGuard } from '../auth/guards/tabs.guard';
 import { Tabs } from '../auth/decorators/tabs.decorator';
 import { GosacService } from './gosac.service';
 import { CreateGosacGroupDto, UpdateGosacGroupDto, LinkSalesOrderDto } from './dto/gosac.dto';
+import { MontadorPdfDto } from './dto/montador.dto';
 import { MontadorPdfService } from './montador-pdf.service';
 import { GoogleDriveService } from './google-drive.service';
 import { PcpScheduleService } from './pcp-schedule.service';
@@ -192,15 +194,11 @@ export class GosacController {
     @Tabs('gosac-pontta/pagamento-montador')
     @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
     async uploadLogo(@UploadedFile() file: Express.Multer.File) {
-        console.log('[MontadorAPI] POST /gosac/logo', {
-            fileName: file?.originalname,
-            mimeType: file?.mimetype,
-            size: file?.size,
-        });
-        if (!file) throw new Error('Nenhum arquivo enviado');
-        const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-        if (!allowed.includes(file.mimetype)) throw new Error('Formato inválido. Use PNG, JPG ou WebP.');
-        await this.montadorPdfService.updateLogo(file.buffer, file.mimetype);
+        if (!file) throw new BadRequestException('Nenhum arquivo enviado');
+        // Confere o conteúdo real (magic bytes) — o mimetype informado pelo cliente não é confiável
+        const detected = this.detectImageMime(file.buffer);
+        if (!detected) throw new BadRequestException('Formato inválido. Use PNG, JPG ou WebP.');
+        await this.montadorPdfService.updateLogo(file.buffer, detected);
         console.log('[MontadorAPI] uploadLogo -> sucesso');
         return { message: 'Logo atualizado com sucesso' };
     }
@@ -285,20 +283,7 @@ export class GosacController {
     @Post('proposals/montador-pdf')
     @Tabs('gosac-pontta/pagamento-montador')
     async generateMontadorPdfFromProposal(
-        @Body() body: {
-            proposalCode: string;
-            customerName: string;
-            environmentName: string;
-            environmentValue: number;
-            environments?: Array<{ environmentName: string; environmentValue: number }>;
-            ponttaDiscount?: number;
-            additionalDiscount?: number;
-            montadorPercent?: number;
-            deliveryDate?: string;
-            assemblyStartDate?: string;
-            assemblyEndDate?: string;
-            sendToDrive?: boolean;
-        },
+        @Body() body: MontadorPdfDto,
         @Res() res: Response,
     ) {
         return this.generateMontadorPdf(body, res);
@@ -311,20 +296,7 @@ export class GosacController {
     @Post('sales-orders/montador-pdf')
     @Tabs('gosac-pontta/pagamento-montador')
     async generateMontadorPdfFromSalesOrder(
-        @Body() body: {
-            proposalCode: string;
-            customerName: string;
-            environmentName: string;
-            environmentValue: number;
-            environments?: Array<{ environmentName: string; environmentValue: number }>;
-            ponttaDiscount?: number;
-            additionalDiscount?: number;
-            montadorPercent?: number;
-            deliveryDate?: string;
-            assemblyStartDate?: string;
-            assemblyEndDate?: string;
-            sendToDrive?: boolean;
-        },
+        @Body() body: MontadorPdfDto,
         @Res() res: Response,
     ) {
         console.log('[MontadorAPI] POST /gosac/sales-orders/montador-pdf', {
@@ -338,6 +310,13 @@ export class GosacController {
         return this.generateMontadorPdf(body, res);
     }
 
+    private detectImageMime(buf: Buffer): string | null {
+        if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+        if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+        if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+        return null;
+    }
+
     private clampPercent(value: unknown, fallback: number): number {
         const n = Number(value);
         if (!Number.isFinite(n)) return fallback;
@@ -347,20 +326,7 @@ export class GosacController {
     }
 
     private async generateMontadorPdf(
-        body: {
-            proposalCode: string;
-            customerName: string;
-            environmentName: string;
-            environmentValue: number;
-            environments?: Array<{ environmentName: string; environmentValue: number }>;
-            ponttaDiscount?: number;
-            additionalDiscount?: number;
-            montadorPercent?: number;
-            deliveryDate?: string;
-            assemblyStartDate?: string;
-            assemblyEndDate?: string;
-            sendToDrive?: boolean;
-        },
+        body: MontadorPdfDto,
         res: Response,
     ) {
         console.log('[MontadorCalc] Payload bruto recebido', {

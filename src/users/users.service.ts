@@ -9,6 +9,9 @@ import { EmailService } from '../email/email.service';
 import { SettingsService } from '../settings/settings.service';
 import { MASTER_TABS, deriveRoleFromTabs, normalizeTabs } from './tabs.constants';
 
+const BCRYPT_COST = 12;
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
 @Injectable()
 export class UsersService {
     constructor(
@@ -29,7 +32,7 @@ export class UsersService {
             throw new ForbiddenException('Selecione ao menos uma aba');
         }
 
-        const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+        const hashedPassword = await bcrypt.hash(createUserDto.password, BCRYPT_COST);
         const role = deriveRoleFromTabs(normalizedTabs);
 
         const user = this.usersRepository.create({
@@ -60,11 +63,11 @@ export class UsersService {
             throw new ConflictException('Email já está em uso');
         }
 
-        const hashedPassword = await bcrypt.hash(createMasterDto.password, 10);
+        const hashedPassword = await bcrypt.hash(createMasterDto.password, BCRYPT_COST);
 
         const user = this.usersRepository.create({
-            email: createMasterDto.email,
-            name: createMasterDto.name,
+            email: normalizeEmail(createMasterDto.email),
+            name: createMasterDto.name.trim(),
             password: hashedPassword,
             role: UserRole.MASTER,
             tabs: [...MASTER_TABS],
@@ -93,10 +96,10 @@ export class UsersService {
         if (existing) {
             throw new ConflictException('Este email já está em uso');
         }
-        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_COST);
         await this.usersRepository.save(this.usersRepository.create({
-            email: dto.email,
-            name: dto.name,
+            email: normalizeEmail(dto.email),
+            name: dto.name.trim(),
             password: hashedPassword,
             role: UserRole.USER,
             status: UserStatus.PENDING,
@@ -155,13 +158,13 @@ export class UsersService {
         }
 
         const inviteToken = crypto.randomBytes(32).toString('hex');
-        const inviteCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const inviteCode = await this.generateUniqueInviteCode();
         const expiresAt = new Date();
         expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
-        const hashedToken = await bcrypt.hash(inviteToken, 10);
+        const hashedToken = await bcrypt.hash(inviteToken, BCRYPT_COST);
         const user = this.usersRepository.create({
-            email,
+            email: normalizeEmail(email),
             password: '',
             name: '',
             role,
@@ -233,7 +236,7 @@ export class UsersService {
                     </div>
                 `,
             });
-            console.log('✅ Email de convite enviado para:', email, 'Código:', inviteCode);
+            console.log('✅ Email de convite enviado para:', email);
             emailSent = true;
         } catch (error) {
             console.error('❌ Erro ao enviar email de convite:', error?.message || error);
@@ -241,6 +244,16 @@ export class UsersService {
         }
 
         return { inviteToken, inviteCode, expiresAt, user: savedUser, frontendUrl, emailSent, emailError };
+    }
+
+    /** Código de 6 dígitos criptograficamente aleatório e sem colisão com convites pendentes. */
+    private async generateUniqueInviteCode(): Promise<string> {
+        for (let i = 0; i < 10; i++) {
+            const code = crypto.randomInt(100000, 1000000).toString();
+            const clash = await this.usersRepository.count({ where: { inviteCode: code, status: UserStatus.PENDING } });
+            if (!clash) return code;
+        }
+        throw new ConflictException('Não foi possível gerar o código de convite, tente novamente');
     }
 
     async validateInviteCode(code: string): Promise<{ valid: boolean; email?: string; token?: string; message?: string }> {
@@ -285,7 +298,7 @@ export class UsersService {
             throw new ForbiddenException('Código de convite expirado (válido por 10 minutos)');
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, BCRYPT_COST);
 
         user.name = name;
         user.password = hashedPassword;
@@ -326,7 +339,11 @@ export class UsersService {
     }
 
     async findByEmail(email: string): Promise<User | null> {
-        return this.usersRepository.findOne({ where: { email } });
+        // Case-insensitive: contas antigas podem ter sido salvas com maiúsculas
+        return this.usersRepository
+            .createQueryBuilder('u')
+            .where('LOWER(u.email) = :email', { email: normalizeEmail(email) })
+            .getOne();
     }
 
     async update(
@@ -344,10 +361,8 @@ export class UsersService {
             if (actor?.role !== UserRole.MASTER) {
                 throw new ForbiddenException('Apenas o master pode alterar a senha de outros usuários');
             }
-            if (updateUserDto.password.length < 6) {
-                throw new ForbiddenException('A senha deve ter no mínimo 6 caracteres');
-            }
-            updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
+    
+            updateUserDto.password = await bcrypt.hash(updateUserDto.password, BCRYPT_COST);
         }
 
         if (updateUserDto.tabs !== undefined) {
@@ -387,7 +402,7 @@ export class UsersService {
     async getPendingInvites(): Promise<any[]> {
         const pendingUsers = await this.usersRepository.find({
             where: { status: UserStatus.PENDING },
-            select: ['id', 'email', 'role', 'tabs', 'invitedBy', 'inviteToken', 'inviteExpiresAt', 'createdAt']
+            select: ['id', 'email', 'role', 'tabs', 'invitedBy', 'inviteExpiresAt', 'createdAt']
         });
 
         const result = await Promise.all(pendingUsers.map(async (user) => {
@@ -405,7 +420,6 @@ export class UsersService {
                 email: user.email,
                 role: user.role,
                 tabs: user.tabs || [],
-                inviteToken: user.inviteToken,
                 inviteExpiresAt: user.inviteExpiresAt,
                 invitedBy: inviter,
                 createdAt: user.createdAt
@@ -437,7 +451,7 @@ export class UsersService {
             throw new ForbiddenException('Senha atual incorreta');
         }
 
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_COST);
         user.password = hashedPassword;
         await this.usersRepository.save(user);
 

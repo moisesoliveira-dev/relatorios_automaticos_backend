@@ -10,7 +10,7 @@ import {
     Request,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, InviteUserDto, ApproveRegistrationDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, InviteUserDto, ApproveRegistrationDto, UpdateProfileNameDto, UpdateProfilePasswordDto } from './dto/user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { TabsGuard } from '../auth/guards/tabs.guard';
@@ -117,12 +117,12 @@ export class UsersController {
     }
 
     @Patch('profile/name')
-    updateProfileName(@Request() req: any, @Body() body: { name: string }) {
+    updateProfileName(@Request() req: any, @Body() body: UpdateProfileNameDto) {
         return this.usersService.updateProfileName(req.user.sub, body.name);
     }
 
     @Patch('profile/password')
-    updateProfilePassword(@Request() req: any, @Body() body: { currentPassword: string; newPassword: string }) {
+    updateProfilePassword(@Request() req: any, @Body() body: UpdateProfilePasswordDto) {
         return this.usersService.updateProfilePassword(req.user.sub, body.currentPassword, body.newPassword);
     }
 }

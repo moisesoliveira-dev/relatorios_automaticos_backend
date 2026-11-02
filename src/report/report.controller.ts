@@ -5,7 +5,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TabsGuard } from '../auth/guards/tabs.guard';
 import { Tabs } from '../auth/decorators/tabs.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, IsBoolean } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, IsBoolean, Min, Max, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class SendReportDto {
     @IsOptional()
@@ -17,14 +18,20 @@ export class SendReportDto {
     status?: string;
 
     @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @Max(5000)
     limit?: number;
 
     @IsOptional()
     @IsString()
+    @Matches(/^\d{4}-\d{2}-\d{2}/, { message: 'startDate inválida' })
     startDate?: string;
 
     @IsOptional()
     @IsString()
+    @Matches(/^\d{4}-\d{2}-\d{2}/, { message: 'endDate inválida' })
     endDate?: string;
 
     @IsOptional()
@@ -47,28 +54,21 @@ export class ReportController {
         @Body() dto: SendReportDto,
         @CurrentUser() user: any,
     ) {
-        console.log('📥 Body recebido:', JSON.stringify(dto));
-        console.log('📥 Usuário:', user?.id);
-
         // Valida se pelo menos um destino foi fornecido
         const hasEmail = dto.email && dto.email.trim() !== '';
         const usesFixed = dto.sendToFixed === true || dto.useFixedEmails === true;
 
         if (!hasEmail && !usesFixed) {
-            console.error('❌ Nenhum destino fornecido');
-            throw new BadRequestException('Informe um email ou ative o envio para emails fixos');
+                throw new BadRequestException('Informe um email ou ative o envio para emails fixos');
         }
 
         // Valida formato do email se fornecido
         if (hasEmail) {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(dto.email!)) {
-                console.error('❌ Email com formato inválido:', dto.email);
                 throw new BadRequestException('Email inválido');
             }
         }
-
-        console.log('✅ Processando envio...');
 
         const result = await this.reportService.generateAndSendReport(
             hasEmail ? dto.email!.trim() : null,
@@ -76,7 +76,7 @@ export class ReportController {
             dto.limit,
             dto.startDate,
             dto.endDate,
-            user?.id,
+            user?.sub,
             usesFixed,
         );
 
@@ -94,7 +94,7 @@ export class ReportController {
     ) {
         return this.reportService.getReportExecutions(
             reportId,
-            limit ? parseInt(limit) : 20,
+            limit ? Math.min(Math.max(parseInt(limit) || 20, 1), 200) : 20,
         );
     }
 
@@ -108,7 +108,7 @@ export class ReportController {
     ) {
         const csvContent = await this.reportService.generateReportCsv(
             status,
-            limit ? parseInt(limit) : undefined,
+            limit ? Math.min(Math.max(parseInt(limit) || 1, 1), 5000) : undefined,
             startDate,
             endDate
         );
@@ -131,7 +131,7 @@ export class ReportController {
     ) {
         const excelBuffer = await this.reportService.generateReportExcel(
             status,
-            limit ? parseInt(limit) : undefined,
+            limit ? Math.min(Math.max(parseInt(limit) || 1, 1), 5000) : undefined,
             startDate,
             endDate
         );
@@ -154,8 +154,8 @@ export class ReportController {
     ) {
         const result = await this.reportService.previewReport(
             status,
-            page ? parseInt(page) : 0,
-            size ? parseInt(size) : 10,
+            page ? Math.max(parseInt(page) || 0, 0) : 0,
+            size ? Math.min(Math.max(parseInt(size) || 10, 1), 100) : 10,
             startDate,
             endDate
         );

@@ -37,25 +37,41 @@ export class SettingsService {
         this.ENCRYPTION_KEY = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
     }
 
+    /** Chave v2: derivada via scrypt (mesma ENCRYPTION_KEY, sem padding com zeros). */
+    private get keyV2(): Buffer {
+        if (!this._keyV2) {
+            this._keyV2 = crypto.scryptSync(this.appConfig.encryptionKey, 'cmm-settings-v2', 32);
+        }
+        return this._keyV2;
+    }
+    private _keyV2?: Buffer;
+
+    /** Novo formato: "v2:<iv>:<tag>:<dados>" em AES-256-GCM (autenticado). */
     private encrypt(text: string): string {
-        const iv = crypto.randomBytes(16);
-        const cipher = crypto.createCipheriv(this.ALGORITHM, this.ENCRYPTION_KEY, iv);
-        let encrypted = cipher.update(text, 'utf8', 'hex');
-        encrypted += cipher.final('hex');
-        return iv.toString('hex') + ':' + encrypted;
+        const iv = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv('aes-256-gcm', this.keyV2, iv);
+        const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        return `v2:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
     }
 
+    /** Lê o formato novo (v2/GCM) e também o legado (CBC "iv:dados"), para não perder valores já salvos. */
     private decrypt(text: string): string {
         try {
+            if (text.startsWith('v2:')) {
+                const [, ivHex, tagHex, dataHex] = text.split(':');
+                const decipher = crypto.createDecipheriv('aes-256-gcm', this.keyV2, Buffer.from(ivHex, 'hex'));
+                decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+                return Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]).toString('utf8');
+            }
             const parts = text.split(':');
             const iv = Buffer.from(parts[0], 'hex');
-            const encryptedText = parts[1];
             const decipher = crypto.createDecipheriv(this.ALGORITHM, this.ENCRYPTION_KEY, iv);
-            let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+            let decrypted = decipher.update(parts[1], 'hex', 'utf8');
             decrypted += decipher.final('utf8');
             return decrypted;
-        } catch (error) {
-            console.error('Erro ao descriptografar:', error);
+        } catch {
+            console.error('Erro ao descriptografar uma configuração (chave incorreta ou valor corrompido)');
             return text; // Retorna o valor original se falhar
         }
     }

@@ -1,10 +1,20 @@
 import './load-env';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Cabeçalhos de segurança (HSTS, nosniff, frameguard...)
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+  // Atrás do proxy (nginx/Railway) o IP real vem em X-Forwarded-For — necessário p/ rate limit por IP
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Validação global de DTOs
   app.useGlobalPipes(new ValidationPipe({
