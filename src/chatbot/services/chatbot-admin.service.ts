@@ -65,7 +65,13 @@ const maskPhone = (n: string | null) =>
 export interface SimulateInput {
   texto?: string;
   estado?: Record<string, unknown> | null;
-  inicio?: { step?: string; trilha?: string | null; nome?: string | null };
+  inicio?: {
+    step?: string;
+    trilha?: string | null;
+    nome?: string | null;
+    /** Entrar direto neste fluxo próprio (publicado), sem passar pelo menu. */
+    fluxoId?: string;
+  };
   usarIA?: boolean;
 }
 
@@ -333,6 +339,27 @@ export class ChatbotAdminService {
 
     // Chegada do cliente (sem estado): mostra a primeira tela
     if (!input.estado) {
+      if (input.inicio?.fluxoId) {
+        const flow = fluxoPorId(input.inicio.fluxoId);
+        if (!flow)
+          throw new BadRequestException(
+            'Este fluxo não está publicado: publique-o para testá-lo aqui.',
+          );
+        const d = customToDecision(startFlow(flow, null), flow.id, null);
+        const next: FlowState = {
+          ...INITIAL_FLOW_STATE,
+          categorias: [],
+          ...d.patch,
+        };
+        return this.resposta(
+          next,
+          d.replies,
+          d.effects,
+          'regras',
+          usarIA,
+          flow.id,
+        );
+      }
       const step = STEPS.includes(input.inicio?.step as Step)
         ? (input.inicio!.step as Step)
         : 'MENU';

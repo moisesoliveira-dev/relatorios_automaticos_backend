@@ -26,7 +26,12 @@ export class SimulateDto {
   /** Só no começo: iniciar a conversa numa etapa específica do fluxo padrão. */
   @IsOptional()
   @IsObject()
-  inicio?: { step?: string; trilha?: string | null; nome?: string | null };
+  inicio?: {
+    step?: string;
+    trilha?: string | null;
+    nome?: string | null;
+    fluxoId?: string;
+  };
 
   @IsOptional()
   @IsBoolean()

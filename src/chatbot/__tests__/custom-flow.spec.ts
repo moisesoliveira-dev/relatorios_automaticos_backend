@@ -729,6 +729,29 @@ describe('simulador (Testar) com fluxos próprios', () => {
     expect(r.terminou).toBe(true);
   });
 
+  it('escolher o fluxo: entra direto nele (sem menu); fluxo não publicado é recusado', async () => {
+    const svc = await montar(flow({ ativo: false, menuOpcao: null }), {
+      available: false,
+    });
+    const r: any = await svc.converse({
+      inicio: { fluxoId: 'orcamento_rapido' },
+    });
+    expect(r.mensagens.join('\n')).toContain('Qual é o seu nome?');
+    expect(r.onde).toMatchObject({
+      etapa: 'CUSTOM',
+      fluxo: { nome: 'Orçamento rápido' },
+      bloco: { numero: 1 },
+    });
+    const r2: any = await svc.converse({
+      texto: 'Ana Paula',
+      estado: r.estado,
+    });
+    expect(r2.onde.bloco.numero).toBe(3);
+    await expect(
+      svc.converse({ inicio: { fluxoId: 'nao_existe' } }),
+    ).rejects.toThrow(/não está publicado/);
+  });
+
   it('dúvida dentro do fluxo usa a base do fluxo e o teste mostra a voz reescrita', async () => {
     const answerFaq = jest.fn(
       async () => 'A loja abre de segunda a sábado, das 9h às 18h.',
