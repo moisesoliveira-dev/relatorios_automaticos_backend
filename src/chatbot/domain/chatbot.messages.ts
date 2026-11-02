@@ -79,6 +79,9 @@ export const MESSAGES = {
 
 export type MessageKey = keyof typeof MESSAGES;
 
+/** Cópia dos textos do código: o que vale quando a tela não personalizou nada. */
+export const DEFAULT_MESSAGES: Record<MessageKey, string> = { ...MESSAGES };
+
 /** Categorias de ambiente (opções 1–8 do passo de ambientes). */
 export const CATEGORIAS_AMBIENTE: Record<number, string> = {
   1: 'Cozinha',
@@ -89,4 +92,8 @@ export const CATEGORIAS_AMBIENTE: Record<number, string> = {
   6: 'Canto Alemão',
   7: 'Home Office',
   8: 'Ambiente Coorporativo',
+};
+
+export const DEFAULT_CATEGORIAS: Record<number, string> = {
+  ...CATEGORIAS_AMBIENTE,
 };

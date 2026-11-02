@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { guidanceBlock } from '../domain/content-runtime';
 import { OpenAiService } from '../services/openai.service';
 import { MessageSpec } from '../domain/message-specs';
 import { WriterOutput } from '../domain/writer.validator';
@@ -97,7 +98,7 @@ export class WriterAgent {
 
     return this.openai.callTool<WriterOutput>({
       agent: 'writer',
-      system: SYSTEM,
+      system: SYSTEM + guidanceBlock(),
       user,
       tool: TOOL,
       maxTokens: 260,

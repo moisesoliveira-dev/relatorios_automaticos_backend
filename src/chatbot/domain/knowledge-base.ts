@@ -112,7 +112,12 @@ export const KNOWLEDGE_BASE: KbEntry[] = [
   },
 ];
 
-const strip = (s: string) =>
+export const DEFAULT_KB: KbEntry[] = KNOWLEDGE_BASE.map((e) => ({
+  ...e,
+  keywords: [...e.keywords],
+}));
+
+export const strip = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /** Busca determinística: as `limit` entradas com mais palavras-chave presentes na pergunta. */

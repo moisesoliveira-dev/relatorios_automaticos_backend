@@ -14,6 +14,11 @@ export const KNOWLEDGE_BASE = {
 } as const;
 
 const ALLOWED_NUMBER_TOKENS = new Set(['1334', '99455', '1471', '60', '92']);
+/** Números que aparecem na base de conhecimento publicada na tela também podem ser repetidos. */
+let extraNumberTokens = new Set<string>();
+export function setExtraAllowedNumbers(texts: string[]): void {
+  extraNumberTokens = new Set(texts.flatMap((t) => t.match(/\d{3,}/g) ?? []));
+}
 
 const FORBIDDEN_PATTERNS: RegExp[] = [
   /r\$\s*\d/i,
@@ -38,7 +43,12 @@ export function sanitizeFreeReply(
   if (FORBIDDEN_PATTERNS.some((re) => re.test(text))) return null;
 
   const numbers = text.match(/\d{3,}/g) ?? [];
-  if (numbers.some((n) => !ALLOWED_NUMBER_TOKENS.has(n))) return null;
+  if (
+    numbers.some(
+      (n) => !ALLOWED_NUMBER_TOKENS.has(n) && !extraNumberTokens.has(n),
+    )
+  )
+    return null;
 
   // Nunca deixa a resposta "instruir" o cliente a digitar comandos do fluxo por conta própria.
   text = text

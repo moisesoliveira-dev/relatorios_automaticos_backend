@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { guidanceBlock } from '../domain/content-runtime';
 import { KbEntry } from '../domain/knowledge-base';
 import { sanitizeFreeReply } from '../domain/free-reply.guard';
 import { OpenAiService } from '../services/openai.service';
@@ -52,7 +53,7 @@ export class FaqAgent {
     if (!kb.length) return null;
     const raw = await this.openai.callTool<FaqRaw>({
       agent: 'faq',
-      system: SYSTEM,
+      system: SYSTEM + guidanceBlock(),
       user: `Base de conhecimento:\n${renderKb(kb)}\n\n${wrapCustomerMessage(question)}`,
       tool: TOOL,
       maxTokens: 220,

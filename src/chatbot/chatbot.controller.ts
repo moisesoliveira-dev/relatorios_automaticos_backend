@@ -7,6 +7,8 @@ import {
   Post,
   Put,
   Query,
+  Delete,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -18,6 +20,7 @@ import { Tabs } from '../auth/decorators/tabs.decorator';
 import { UserRole } from '../users/entities/user.entity';
 import { ChatbotService } from './services/chatbot.service';
 import { ChatbotAdminService } from './services/chatbot-admin.service';
+import { ChatbotContentService } from './services/chatbot-content.service';
 import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.service';
 import { ListConversationsDto, SimulateDto } from './dto/admin.dto';
 
@@ -31,7 +34,12 @@ export class ChatbotController {
     private readonly chatbot: ChatbotService,
     private readonly admin: ChatbotAdminService,
     private readonly config: ChatbotRuntimeConfigService,
+    private readonly content: ChatbotContentService,
   ) {}
+
+  private who(req: { user?: { email?: string } }): string | null {
+    return req.user?.email ?? null;
+  }
 
   /** Estado do sistema (liga/desliga, IA, disjuntor, decisões dos agentes). */
   @Get('status')
@@ -91,5 +99,33 @@ export class ChatbotController {
   @Put('config')
   saveConfig(@Body() body: { values: Record<string, unknown> }) {
     return this.config.save(body?.values as Record<string, unknown>);
+  }
+
+  // ───────── conteúdo editável (mensagens, base, ambientes, guia da IA) ─────────
+
+  @Get('content')
+  @SkipThrottle()
+  getContent() {
+    return this.content.get();
+  }
+
+  @Put('content/draft')
+  saveDraft(@Body() body: unknown, @Req() req: { user?: { email?: string } }) {
+    return this.content.saveDraft(body, this.who(req));
+  }
+
+  @Delete('content/draft')
+  discardDraft() {
+    return this.content.discardDraft();
+  }
+
+  @Post('content/publish')
+  publish(@Req() req: { user?: { email?: string } }) {
+    return this.content.publish(this.who(req));
+  }
+
+  @Post('content/rollback')
+  rollback(@Req() req: { user?: { email?: string } }) {
+    return this.content.rollback(this.who(req));
   }
 }

@@ -286,8 +286,8 @@ interface Matcher {
   re: RegExp;
 }
 
-const MATCHERS: Matcher[] = (Object.keys(MESSAGES) as MessageKey[]).map(
-  (key) => {
+const buildMatchers = (): Matcher[] =>
+  (Object.keys(MESSAGES) as MessageKey[]).map((key) => {
     const text: string = MESSAGES[key];
     if (key === 'escolher_horario') {
       return {
@@ -299,8 +299,14 @@ const MATCHERS: Matcher[] = (Object.keys(MESSAGES) as MessageKey[]).map(
     }
     const re = escapeRe(text).replace(/\\\{nome\\\}/g, '(?<nome>.+?)');
     return { key, re: new RegExp(`^${re}$`, 's') };
-  },
-);
+  });
+
+let MATCHERS: Matcher[] = buildMatchers();
+
+/** Chamado quando os textos são trocados pela tela (publicar/reverter). */
+export function refreshMessageMatchers(): void {
+  MATCHERS = buildMatchers();
+}
 
 export interface Identified {
   key: MessageKey;

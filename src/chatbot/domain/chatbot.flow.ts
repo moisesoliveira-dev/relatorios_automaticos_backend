@@ -1,4 +1,5 @@
 import { CATEGORIAS_AMBIENTE, MESSAGES } from './chatbot.messages';
+import { runtimeContent } from './content-runtime';
 import {
   Decision,
   Effect,
@@ -18,7 +19,9 @@ import {
 export function validOptions(state: FlowState): number[] {
   switch (state.step) {
     case 'MENU':
-      return [1, 2, 3, 4, 5];
+      return [1, 2, 3, 4, 5].filter(
+        (n) => !runtimeContent.menuDesativado.includes(n),
+      );
     case 'CONFIRMA_NOME':
     case 'CASA_AP':
     case 'PLANTA_ACHOU':
@@ -254,6 +257,7 @@ function decideForStep(
   switch (state.step) {
     case 'MENU': {
       if (input.kind !== 'option') return input.kind === 'file' ? stay() : null;
+      if (runtimeContent.menuDesativado.includes(input.value)) return null;
       switch (input.value) {
         case 1:
           return stay({ ...reset, step: 'NOME', trilha: 'projeto' }, [

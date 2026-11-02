@@ -8,6 +8,7 @@ import { ChatbotInboxMessage } from './entities/chatbot-inbox-message.entity';
 import { ChatbotInboxService } from './services/chatbot-inbox.service';
 import { ChatbotLockService } from './services/chatbot-lock.service';
 import { ChatbotAdminService } from './services/chatbot-admin.service';
+import { ChatbotContentService } from './services/chatbot-content.service';
 import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.service';
 import { ChatbotBookedSlot } from './entities/chatbot-booked-slot.entity';
 import { ChatbotController } from './chatbot.controller';
@@ -50,6 +51,7 @@ import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
     ChatbotLockService,
     ChatbotAdminService,
     ChatbotRuntimeConfigService,
+    ChatbotContentService,
     AgentOrchestrator,
     ScopeAgent,
     InterpreterAgent,
