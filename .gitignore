@@ -60,3 +60,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Google Drive credentials (local only)
 src/google_credencials/*.json
 !src/google_credencials/*.example.json
+
+# Lista de segredos para o git-filter-repo: NUNCA versionar
+scripts/security/replacements.txt
