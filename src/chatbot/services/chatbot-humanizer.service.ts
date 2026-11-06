@@ -1,13 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
-import {
-  identifyMessage,
-  MessageSpec,
-  SPECS,
-  splitBlock,
-} from '../domain/message-specs';
-import { Guidance, TONES, ToneKey } from '../domain/content-runtime';
-import { fluxoPorId } from '../domain/content-runtime';
+import { MessageSpec, SPECS, splitBlock } from '../domain/message-specs';
+import { fluxoPorId, Guidance, guidanceOf } from '../domain/content-runtime';
 import {
   assembleBubbles,
   validateWriterOutput,
@@ -15,7 +9,7 @@ import {
 } from '../domain/writer.validator';
 import { WriterAgent } from '../agents/writer.agent';
 import { OpenAiService } from './openai.service';
-import { ChatbotConversation } from '../entities/chatbot-conversation.entity';
+import type { Reply } from '../engine/flow.types';
 
 type Counter =
   | 'escrita_ok'
@@ -24,11 +18,31 @@ type Counter =
   | 'fallback_limite'
   | 'sem_spec';
 
+/** O que o Redator precisa saber sobre a conversa. */
+export interface ComposeContext {
+  contactId: number;
+  nome: string | null;
+  history: Array<{ role: 'cliente' | 'bot'; text: string }>;
+}
+
+const SYSTEM_SPEC: Record<string, keyof typeof SPECS> = {
+  invalida_generica: 'invalida_generica',
+  invalida_nome: 'invalida_nome',
+  invalida_arquivos: 'invalida_arquivos',
+  invalida_lista: 'invalida_ambientes',
+  fora_escopo: 'fora_escopo',
+  fora_escopo_limite: 'fora_escopo_limite',
+  audio_nao_suportado: 'audio_nao_suportado',
+  reinicio_por_pausa: 'reinicio_por_pausa',
+  redirecionando: 'redirecionando_projetistas',
+  redirecionando_com_nome: 'redirecionando_projetistas_com_nome',
+};
+
 /**
- * Dá voz humana às mensagens do bot. Recebe o texto padrão que o motor de regras decidiu enviar,
- * pede ao agente Redator uma versão natural e contextual, e só a usa se o revisor confirmar que
- * todos os pontos essenciais continuam lá. Qualquer falha devolve o texto original — o cliente
- * nunca fica sem resposta e a conversa nunca depende da IA para andar.
+ * Dá voz humana às mensagens do bot. Recebe o texto que o motor decidiu enviar (com a
+ * especificação do que ele precisa comunicar), pede ao agente Redator uma versão natural e só a usa
+ * se o revisor confirmar que todos os pontos essenciais continuam lá. Qualquer falha devolve o texto
+ * original: o cliente nunca fica sem resposta e a conversa nunca depende da IA para andar.
  */
 @Injectable()
 export class ChatbotHumanizerService {
@@ -57,15 +71,15 @@ export class ChatbotHumanizerService {
     );
   }
 
-  /** Devolve as bolhas a enviar (1 ou 2 por mensagem do catálogo). */
+  /** Devolve as bolhas a enviar (1 ou 2 por mensagem). */
   async compose(
-    conv: ChatbotConversation,
-    texts: string[],
+    ctx: ComposeContext,
+    replies: Reply[],
     flowId?: string,
   ): Promise<string[]> {
-    if (!texts.length) return [];
+    if (!replies.length) return [];
     const parts = await Promise.all(
-      texts.map((t) => this.composeOne(conv, t, flowId)),
+      replies.map((r) => this.composeOne(ctx, r, flowId)),
     );
     return parts.flat();
   }
@@ -73,58 +87,66 @@ export class ChatbotHumanizerService {
   private overLimit(contactId: number): boolean {
     const day = new Date(Date.now() - 4 * 3600_000).toISOString().slice(0, 10);
     const key = `${contactId}:${day}`;
-    if (this.usage.size > 5000) this.usage.clear(); // evita crescer sem limite
+    if (this.usage.size > 5000) this.usage.clear();
     const n = (this.usage.get(key) ?? 0) + 1;
     this.usage.set(key, n);
     return n > this.appConfig.chatbot.writerDailyLimit;
   }
 
-  private async composeOne(
-    conv: ChatbotConversation,
-    text: string,
-    flowId?: string,
-  ): Promise<string[]> {
-    if (!this.enabled) return [text];
-    const flow = flowId ? fluxoPorId(flowId) : undefined;
-    // Num fluxo próprio, vale o jeito de falar DELE (nunca o do fluxo padrão).
-    const guidance: Guidance | undefined = flow
-      ? {
-          tone: ((flow.guidance?.tone as ToneKey) in TONES
-            ? flow.guidance?.tone
-            : 'padrao') as ToneKey,
-          instructions: flow.guidance?.instructions ?? '',
-        }
-      : undefined;
-
-    const id = identifyMessage(text);
-    let spec: MessageSpec | undefined = id ? SPECS[id.key] : undefined;
-    const key: string = id?.key ?? 'fluxo_proprio';
-    if (!id && flow?.reescrever) {
-      // Texto escrito pelo dono do fluxo: a IA só pode mudar o jeito de dizer, nada do conteúdo.
-      const { head } = splitBlock({ objetivo: '', pontos: [] }, text);
-      spec = {
+  /** Especificação que vale para esta mensagem: da etapa, do sistema, ou genérica (texto do dono do fluxo). */
+  private specFor(reply: Reply, reescrever: boolean): MessageSpec | undefined {
+    if (reply.spec) {
+      return {
         objetivo:
-          'Dizer exatamente o que a mensagem do fluxo diz, no tom definido, sem acrescentar nem tirar informação.',
-        pontos: [],
-        maxChars: Math.max(240, head.length),
-        usaNome: true,
-        perguntar: head.includes('?'),
-        manter: [...head.matchAll(/\*([^*\n]{2,40})\*/g)].map((m) =>
-          m[1].normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(),
-        ),
+          reply.spec.objetivo ??
+          'Dizer exatamente o que a mensagem diz, no tom definido, sem acrescentar nem tirar informação.',
+        pontos: (reply.spec.pontos ?? []).map((anyOf) => ({ anyOf })),
+        saudacao: reply.spec.saudacao,
+        usaNome: reply.spec.usaNome,
+        maxChars: reply.spec.maxChars,
+        nomeObrigatorio: reply.texto.includes('{nome}') || undefined,
       };
     }
+    if (reply.sistema && SYSTEM_SPEC[reply.sistema])
+      return SPECS[SYSTEM_SPEC[reply.sistema]];
+    if (!reescrever) return undefined;
+    // Texto escrito pelo dono do fluxo: a IA só pode mudar o jeito de dizer, nada do conteúdo.
+    const { head } = splitBlock({ objetivo: '', pontos: [] }, reply.texto);
+    return {
+      objetivo:
+        'Dizer exatamente o que a mensagem do fluxo diz, no tom definido, sem acrescentar nem tirar informação.',
+      pontos: [],
+      maxChars: Math.max(240, head.length),
+      usaNome: true,
+      perguntar: head.includes('?'),
+      manter: [...head.matchAll(/\*([^*\n]{2,40})\*/g)].map((m) =>
+        m[1].normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(),
+      ),
+    };
+  }
+
+  private async composeOne(
+    ctx: ComposeContext,
+    reply: Reply,
+    flowId?: string,
+  ): Promise<string[]> {
+    const text = reply.texto;
+    if (!this.enabled) return [text];
+    const flow = flowId ? fluxoPorId(flowId) : undefined;
+    const guidance: Guidance = guidanceOf(flow);
+    const spec = this.specFor(reply, !!flow?.reescrever);
+    const key = reply.nodeId ?? reply.sistema ?? 'texto';
     if (!spec) {
       this.counters.sem_spec++;
       return [text];
     }
-    if (this.overLimit(conv.contactId)) {
+    if (this.overLimit(ctx.contactId)) {
       this.counters.fallback_limite++;
       return [text];
     }
 
     const { head, block } = splitBlock(spec, text);
-    const history = conv.history ?? [];
+    const history = ctx.history ?? [];
     const lastCustomer = [...history]
       .reverse()
       .find((t) => t.role === 'cliente')?.text;
@@ -132,7 +154,7 @@ export class ChatbotHumanizerService {
       .filter((t) => t.role === 'bot')
       .map((t) => t.text);
     const manaus = new Date(Date.now() - 4 * 3600_000).getUTCHours();
-    const nome = id?.nome ?? conv.nome ?? null;
+    const nome = ctx.nome ?? null;
 
     let out: WriterOutput | null = null;
     try {

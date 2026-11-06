@@ -1,4 +1,3 @@
-import type { CustomState } from '../domain/custom-flow';
 import {
   Column,
   CreateDateColumn,
@@ -7,12 +6,15 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import type { SlotOption, Step, Trilha } from '../domain/chatbot.types';
+import type { FlowState } from '../engine/flow.types';
 
 export interface HistoryTurn {
   role: 'cliente' | 'bot';
   text: string;
 }
+
+/** BOT = o motor de fluxos está conduzindo; HUMANO = um atendente assumiu. */
+export type ConversationStep = 'BOT' | 'HUMANO';
 
 /** Estado de cada cliente no chatbot (substitui a tabela tb_mensagem_cliente do n8n). */
 @Entity('chatbot_conversations')
@@ -39,28 +41,19 @@ export class ChatbotConversation {
   })
   contactName: string | null;
 
-  @Column({ type: 'varchar', length: 24, default: 'MENU' })
-  step: Step;
+  @Column({ type: 'varchar', length: 24, default: 'BOT' })
+  step: ConversationStep;
 
+  /** Caminho escolhido no menu (vale para o painel; é a variável "trilha" do fluxo de início). */
   @Column({ type: 'varchar', length: 16, nullable: true })
-  trilha: Trilha | null;
+  trilha: string | null;
 
   @Column({ type: 'varchar', length: 80, nullable: true })
   nome: string | null;
 
-  @Column({
-    name: 'nome_pendente',
-    type: 'varchar',
-    length: 80,
-    nullable: true,
-  })
-  nomePendente: string | null;
-
-  @Column({ type: 'varchar', length: 8, nullable: true })
-  local: 'casa' | 'ap' | null;
-
-  @Column({ type: 'jsonb', default: () => "'[]'" })
-  categorias: number[];
+  /** Onde o cliente está no fluxo (null = vai começar pelo fluxo de início na próxima mensagem). */
+  @Column({ type: 'jsonb', nullable: true })
+  flow: FlowState | null;
 
   @Column({ type: 'int', default: 0 })
   arquivos: number;
@@ -70,12 +63,6 @@ export class ChatbotConversation {
 
   @Column({ name: 'off_topic_count', type: 'int', default: 0 })
   offTopicCount: number;
-
-  @Column({ type: 'jsonb', nullable: true })
-  slots: SlotOption[] | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  custom: CustomState | null;
 
   @Column({ name: 'em_atendimento', type: 'boolean', default: false })
   emAtendimento: boolean;

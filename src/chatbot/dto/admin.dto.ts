@@ -23,15 +23,10 @@ export class SimulateDto {
   @IsObject()
   estado?: Record<string, unknown> | null;
 
-  /** Só no começo: iniciar a conversa numa etapa específica do fluxo padrão. */
+  /** Só no começo: entrar direto num fluxo publicado (padrão: o fluxo de início). */
   @IsOptional()
   @IsObject()
-  inicio?: {
-    step?: string;
-    trilha?: string | null;
-    nome?: string | null;
-    fluxoId?: string;
-  };
+  inicio?: { fluxoId?: string; nome?: string | null };
 
   @IsOptional()
   @IsBoolean()

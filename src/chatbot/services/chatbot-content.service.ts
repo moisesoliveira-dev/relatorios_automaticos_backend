@@ -7,55 +7,40 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { SettingsService } from '../../settings/settings.service';
 import {
-  CATEGORIAS_AMBIENTE,
-  DEFAULT_CATEGORIAS,
-  DEFAULT_MESSAGES,
-  MESSAGES,
-  MessageKey,
-} from '../domain/chatbot.messages';
-import {
   DEFAULT_KB,
   KbEntry,
   KNOWLEDGE_BASE,
   strip,
 } from '../domain/knowledge-base';
 import { setExtraAllowedNumbers } from '../domain/free-reply.guard';
-import { refreshMessageMatchers, SPECS } from '../domain/message-specs';
 import { runtimeContent, TONES, ToneKey } from '../domain/content-runtime';
 import {
-  checkFlow,
-  CustomFlow,
-  CustomState,
+  ContentDoc,
+  FlowDoc,
   FlowNode,
-  slug,
+  FlowState,
+  LIMITS,
+  NodeSpec,
+  NodeType,
+  SystemMessageKey,
+  SystemMessages,
+} from '../engine/flow.types';
+import { checkDoc, checkFlow } from '../engine/flow.validate';
+import { DEFAULT_SYSTEM, SYSTEM_LABELS, seedFlows } from '../engine/flow.seed';
+import { convertLegacyDoc, isLegacyDoc } from '../engine/legacy';
+import {
+  parseText,
+  resumeTool,
   startFlow,
   stepFlow,
-  TOOLS,
-} from '../domain/custom-flow';
-import { AppConfigService } from '../../infrastructure/config/app-config.service';
+} from '../engine/flow.engine';
+import { slug } from '../engine/text';
+import { ToolRegistry } from '../tools/tool.registry';
 
 const CATEGORY = 'chatbot_content';
 const K_PUBLISHED = 'CHATBOT_CONTENT_PUBLISHED';
 const K_DRAFT = 'CHATBOT_CONTENT_DRAFT';
 const K_PREVIOUS = 'CHATBOT_CONTENT_PREVIOUS';
-
-const MAX_MESSAGE = 1600;
-const MAX_KB = 50;
-
-/** Tudo que a tela pode personalizar. Ausente = padrão do código. */
-export interface ContentDoc {
-  /** Só as mensagens alteradas. */
-  messages: Record<string, string>;
-  /** null = base padrão do código. */
-  kb: KbEntry[] | null;
-  /** Só os ambientes renomeados (chaves 1–8). */
-  categorias: Record<string, string>;
-  guidance: { tone: ToneKey; instructions: string };
-  /** Opções do menu inicial que não devem mais ser aceitas (4 e/ou 5). */
-  menuDesativado: number[];
-  /** Fluxos de atendimento criados pela tela (além do fluxo padrão). */
-  fluxos: CustomFlow[];
-}
 
 interface Stored {
   doc: ContentDoc;
@@ -64,19 +49,118 @@ interface Stored {
 }
 
 export const emptyDoc = (): ContentDoc => ({
-  messages: {},
-  kb: null,
-  categorias: {},
+  versao: 2,
+  fluxos: seedFlows(),
   guidance: { tone: 'padrao', instructions: '' },
-  menuDesativado: [],
-  fluxos: [],
+  kb: null,
+  sistema: {},
 });
 
-const placeholdersOf = (t: string) =>
-  [...new Set([...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort();
-const optionNumbersOf = (t: string) => [
-  ...new Set([...t.matchAll(/\*(\d{1,2})\*/g)].map((m) => Number(m[1]))),
+/** Tipos de etapa que a tela oferece (o motor sabe executá-los). */
+export const NODE_TYPES_INFO: Array<{
+  tipo: NodeType;
+  grupo: string;
+  label: string;
+  ajuda: string;
+  regra: string;
+}> = [
+  {
+    tipo: 'mensagem',
+    grupo: 'Falar',
+    label: 'Mensagem',
+    ajuda: 'Informa algo e segue sozinha.',
+    regra: 'Sem requisitos. Segue sozinha para a próxima etapa.',
+  },
+  {
+    tipo: 'confirmacao',
+    grupo: 'Falar',
+    label: 'Confirmação',
+    ajuda: 'Pergunta com Sim ou Não.',
+    regra: 'Sempre duas respostas, Sim e Não, cada uma com o seu caminho.',
+  },
+  {
+    tipo: 'opcoes',
+    grupo: 'Receber do cliente',
+    label: 'Escolha',
+    ajuda: 'Menu numerado, cada opção segue um caminho.',
+    regra:
+      'De 2 a 9 opções, cada uma com o seu caminho. Palavras-chave ajudam a entender texto livre.',
+  },
+  {
+    tipo: 'multipla',
+    grupo: 'Receber do cliente',
+    label: 'Lista de itens',
+    ajuda: 'O cliente marca vários itens (ex.: ambientes) e confirma com OK.',
+    regra: 'Até 12 itens; a resposta fica na variável como lista.',
+  },
+  {
+    tipo: 'pergunta',
+    grupo: 'Receber do cliente',
+    label: 'Pergunta',
+    ajuda: 'Espera uma resposta escrita e guarda.',
+    regra: 'Dê um nome à resposta. Use “nome” para o nome do cliente.',
+  },
+  {
+    tipo: 'arquivos',
+    grupo: 'Receber do cliente',
+    label: 'Arquivos',
+    ajuda:
+      'Pede arquivos; vão para a pasta do cliente no Drive, se ela existir.',
+    regra:
+      'Para guardar no Drive, crie a pasta antes com a ferramenta “Drive: criar a pasta do cliente”.',
+  },
+  {
+    tipo: 'ferramenta',
+    grupo: 'Fazer',
+    label: 'Ferramenta',
+    ajuda: 'Faz algo sozinho: Drive, agenda, guardar valor.',
+    regra:
+      'Cada ferramenta diz o que precisa antes (ex.: nome do cliente, pasta criada).',
+  },
+  {
+    tipo: 'condicao',
+    grupo: 'Fazer',
+    label: 'Condição',
+    ajuda: 'Decide o caminho pelo que o cliente respondeu.',
+    regra:
+      'Compara variáveis já respondidas. A primeira regra que valer decide; senão, segue o caminho padrão.',
+  },
+  {
+    tipo: 'ir_para',
+    grupo: 'Terminar',
+    label: 'Ir para outro fluxo',
+    ajuda: 'Continua em outro fluxo (ex.: do menu para “Já tenho projeto”).',
+    regra:
+      'O outro fluxo precisa estar ativo. As respostas já dadas continuam disponíveis.',
+  },
+  {
+    tipo: 'encaminhar',
+    grupo: 'Terminar',
+    label: 'Encaminhar',
+    ajuda: 'Passa a um atendente e termina.',
+    regra: 'Termina o fluxo: nada pode vir depois.',
+  },
+  {
+    tipo: 'fim',
+    grupo: 'Terminar',
+    label: 'Encerrar',
+    ajuda: 'Termina e volta ao início.',
+    regra: 'Termina o fluxo: o cliente volta ao fluxo de início.',
+  },
 ];
+
+const asText = (v: unknown): string =>
+  v === null || v === undefined ? '' : typeof v === 'object' ? '' : String(v as string | number | boolean);
+const str = (v: unknown, max: number) =>
+  asText(v)
+    .replace(/\r/g, '')
+    .trim()
+    .slice(0, max);
+const optStr = (v: unknown, max: number) =>
+  v === undefined || v === null || v === '' ? undefined : str(v, max);
+const idOf = (v: unknown, fallback: string) =>
+  (str(v, 40).replace(/[^A-Za-z0-9_-]/g, '') || fallback).slice(0, 40);
+const nullableId = (v: unknown) => (v ? idOf(v, '') || null : null);
 
 @Injectable()
 export class ChatbotContentService implements OnModuleInit {
@@ -85,7 +169,7 @@ export class ChatbotContentService implements OnModuleInit {
 
   constructor(
     private readonly settings: SettingsService,
-    private readonly appConfig?: AppConfigService,
+    private readonly tools: ToolRegistry,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -113,15 +197,6 @@ export class ChatbotContentService implements OnModuleInit {
       this.read(K_DRAFT),
       this.read(K_PREVIOUS),
     ]);
-    const specs: Record<string, unknown> = {};
-    for (const key of Object.keys(DEFAULT_MESSAGES)) {
-      const spec = SPECS[key as MessageKey];
-      specs[key] = {
-        objetivo: spec?.objetivo ?? null,
-        pontos: (spec?.pontos ?? []).map((p) => p.anyOf[0]),
-        placeholders: placeholdersOf(DEFAULT_MESSAGES[key as MessageKey]),
-      };
-    }
     return {
       published: published?.doc ?? emptyDoc(),
       publishedAt: published?.at ?? null,
@@ -130,20 +205,18 @@ export class ChatbotContentService implements OnModuleInit {
       draftAt: draft?.at ?? null,
       hasPrevious: !!previous,
       problemas: draft ? this.problemsOf(draft.doc) : [],
-      defaults: {
-        messages: { ...DEFAULT_MESSAGES },
-        kb: DEFAULT_KB,
-        categorias: { ...DEFAULT_CATEGORIAS },
+      ferramentas: this.tools.describe(),
+      tipos: NODE_TYPES_INFO,
+      tones: Object.entries(TONES).map(([key, t]) => ({ key, label: t.label })),
+      sistema: { padrao: DEFAULT_SYSTEM, rotulos: SYSTEM_LABELS },
+      defaults: { kb: DEFAULT_KB },
+      limites: {
+        fluxos: LIMITS.fluxos,
+        nos: LIMITS.nos,
+        opcoes: LIMITS.opcoes,
+        itens: LIMITS.itens,
+        texto: LIMITS.texto,
       },
-      specs,
-      ferramentas: TOOLS.map((t) => ({
-        ...t,
-        disponivel: !!this.appConfig?.chatbot.driveRootFolderId,
-      })),
-      tones: Object.entries(TONES).map(([key, t]) => ({
-        key,
-        label: t.label,
-      })),
     };
   }
 
@@ -164,7 +237,7 @@ export class ChatbotContentService implements OnModuleInit {
   async publish(by: string | null) {
     const draft = await this.read(K_DRAFT);
     if (!draft) throw new BadRequestException('Não há rascunho para publicar.');
-    const doc = this.validate(draft.doc); // revalida: o código pode ter mudado desde o rascunho
+    const doc = this.validate(draft.doc, true); // revalida: o código pode ter mudado desde o rascunho
     const current = await this.read(K_PUBLISHED);
     if (current) await this.write(K_PREVIOUS, current);
     await this.write(K_PUBLISHED, { doc, at: new Date().toISOString(), by });
@@ -191,9 +264,9 @@ export class ChatbotContentService implements OnModuleInit {
   // ───────────────────────── validação ─────────────────────────
 
   /** O que ainda impede de publicar este rascunho. */
-  private problemsOf(doc: ContentDoc): string[] {
+  problemsOf(doc: ContentDoc): string[] {
     try {
-      this.validate(doc);
+      this.validate(doc, true);
       return [];
     } catch (e) {
       const m = (e as BadRequestException).getResponse() as {
@@ -203,68 +276,276 @@ export class ChatbotContentService implements OnModuleInit {
     }
   }
 
-  /** `strictFlows=false` (rascunho) aceita fluxos incompletos; publicar exige tudo válido. */
-  validate(input: unknown, strictFlows = true): ContentDoc {
+  /** `strict=false` (rascunho) aceita fluxos incompletos; publicar exige tudo válido. */
+  validate(input: unknown, strict: boolean): ContentDoc {
     if (!input || typeof input !== 'object')
       throw new BadRequestException('Conteúdo inválido.');
     const raw = input as Partial<ContentDoc>;
     const errors: string[] = [];
-    const doc = emptyDoc();
 
-    const desativado = Array.isArray(raw.menuDesativado)
-      ? [...new Set(raw.menuDesativado.map(Number))]
-      : [];
-    if (desativado.some((n) => n !== 4 && n !== 5))
-      errors.push('Só as opções 4 e 5 do menu podem ser desativadas.');
-    doc.menuDesativado = desativado.filter((n) => n === 4 || n === 5);
+    if (!Array.isArray(raw.fluxos)) errors.push('Fluxos inválidos.');
+    const lista = Array.isArray(raw.fluxos) ? raw.fluxos : [];
+    if (lista.length > LIMITS.fluxos)
+      errors.push(`São permitidos no máximo ${LIMITS.fluxos} fluxos.`);
+    const ids = new Set<string>();
+    const fluxos: FlowDoc[] = lista.slice(0, LIMITS.fluxos).map((f, i) => {
+      const nome = str(f?.nome, 40).replace(/\s+/g, ' ');
+      const label = nome || `Fluxo ${i + 1}`;
+      if (nome.length < 2)
+        errors.push(`${label}: o nome precisa ter de 2 a 40 caracteres.`);
+      let id = slug(String(f?.id ?? nome)).slice(0, 30) || `fluxo_${i + 1}`;
+      while (ids.has(id)) id = `${id}_x`.slice(0, 30);
+      ids.add(id);
+      const g = f?.guidance;
+      const papel = f?.papel;
+      return {
+        id,
+        nome,
+        descricao: optStr(f?.descricao, 200),
+        ativo: f?.ativo !== false,
+        papel: papel === 'entrada' || papel === 'reconhecimento' ? papel : null,
+        nos: this.normalizeNodes(f?.nos, errors, label),
+        reescrever: f?.reescrever === true,
+        guidance: g
+          ? this.validateGuidance(g, errors, `${label} — jeito de falar`)
+          : undefined,
+        kb: f?.kb
+          ? this.validateKb(f.kb, errors, `${label} — o que ela sabe`)
+          : [],
+      };
+    });
 
-    for (const [key, value] of Object.entries(raw.messages ?? {})) {
-      if (!(key in DEFAULT_MESSAGES)) {
-        errors.push(`Mensagem desconhecida: ${key}.`);
-        continue;
-      }
-      if (typeof value !== 'string') {
-        errors.push(`${key}: o texto precisa ser uma string.`);
-        continue;
-      }
-      const text = value.replace(/\r/g, '').trim();
-      if (text === DEFAULT_MESSAGES[key as MessageKey]) continue; // igual ao padrão: não é override
-      const problem = this.checkMessage(
-        key as MessageKey,
-        text,
-        doc.menuDesativado,
-      );
-      if (problem) errors.push(`${key}: ${problem}`);
-      else doc.messages[key] = text;
+    if (strict) {
+      for (const f of fluxos)
+        for (const p of checkFlow(f, this.tools, fluxos))
+          errors.push(`${f.nome}: ${p}`);
+      errors.push(...checkDoc(fluxos));
     }
 
-    for (const [n, name] of Object.entries(raw.categorias ?? {})) {
-      if (!(Number(n) in DEFAULT_CATEGORIAS)) {
-        errors.push(`Ambiente desconhecido: ${n}.`);
+    const sistema: Partial<SystemMessages> = {};
+    for (const [k, v] of Object.entries(raw.sistema ?? {})) {
+      if (!(k in DEFAULT_SYSTEM)) {
+        errors.push(`Mensagem do sistema desconhecida: ${k}.`);
         continue;
       }
-      const nome = String(name ?? '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (nome.length < 2 || nome.length > 40)
-        errors.push(`Ambiente ${n}: o nome precisa ter de 2 a 40 caracteres.`);
-      else if (nome !== DEFAULT_CATEGORIAS[Number(n)]) doc.categorias[n] = nome;
+      const text = str(v, LIMITS.texto);
+      if (!text || text === DEFAULT_SYSTEM[k as SystemMessageKey]) continue;
+      if (k === 'redirecionando_com_nome' && !text.includes('{nome}')) {
+        errors.push(
+          '“Encaminhando ao atendente (com nome)” precisa conter {nome}.',
+        );
+        continue;
+      }
+      sistema[k as SystemMessageKey] = text;
     }
 
-    if (raw.kb !== null && raw.kb !== undefined)
-      doc.kb = this.validateKb(raw.kb, errors, 'Base');
-
-    doc.fluxos = this.validateFlows(raw.fluxos, strictFlows ? errors : []);
-
-    if (raw.guidance)
-      doc.guidance = this.validateGuidance(
-        raw.guidance,
+    const doc: ContentDoc = {
+      versao: 2,
+      fluxos,
+      guidance: this.validateGuidance(
+        raw.guidance ?? { tone: 'padrao', instructions: '' },
         errors,
         'Jeito de falar',
-      );
-
-    if (errors.length) throw new BadRequestException(errors);
+      ),
+      kb:
+        raw.kb === null || raw.kb === undefined
+          ? null
+          : this.validateKb(raw.kb, errors, 'Base'),
+      sistema,
+    };
+    if (errors.length) throw new BadRequestException([...new Set(errors)]);
     return doc;
+  }
+
+  private normalizeNodes(
+    input: unknown,
+    errors: string[],
+    label: string,
+  ): FlowNode[] {
+    if (!Array.isArray(input)) return [];
+    if (input.length > LIMITS.nos)
+      errors.push(`${label}: o fluxo aceita no máximo ${LIMITS.nos} etapas.`);
+    return input.slice(0, LIMITS.nos).map((raw, i): FlowNode => {
+      const n = raw as Record<string, unknown>;
+      const base = {
+        id: idOf(n['id'], `n${i + 1}`),
+        titulo: str(n['titulo'], 60),
+      };
+      const spec = this.normalizeSpec(n['spec']);
+      const texto = str(n['texto'], LIMITS.texto);
+      const proximo = nullableId(n['proximo']);
+      const opcoes = Array.isArray(n['opcoes'])
+        ? (n['opcoes'] as Array<Record<string, unknown>>)
+            .slice(0, LIMITS.opcoes)
+            .map((o) => ({
+              rotulo: str(o?.['rotulo'], LIMITS.rotulo),
+              proximo: nullableId(o?.['proximo']),
+              valor: optStr(o?.['valor'], 60),
+              palavras: Array.isArray(o?.['palavras'])
+                ? (o['palavras'] as unknown[])
+                    .map((p) => str(p, 40))
+                    .filter(Boolean)
+                    .slice(0, 10)
+                : undefined,
+            }))
+        : [];
+      const variavel = optStr(n['variavel'], 30);
+      switch (n['tipo'] as NodeType) {
+        case 'mensagem':
+          return { ...base, tipo: 'mensagem', texto, proximo, spec };
+        case 'pergunta':
+          return {
+            ...base,
+            tipo: 'pergunta',
+            texto,
+            variavel: variavel ?? '',
+            validacao: [
+              'nome',
+              'texto',
+              'numero',
+              'telefone',
+              'email',
+            ].includes(String(n['validacao']))
+              ? (n['validacao'] as 'nome')
+              : undefined,
+            proximo,
+            spec,
+          };
+        case 'opcoes':
+          return { ...base, tipo: 'opcoes', texto, variavel, opcoes, spec };
+        case 'confirmacao':
+          return {
+            ...base,
+            tipo: 'confirmacao',
+            texto,
+            variavel,
+            opcoes: [
+              { ...(opcoes[0] ?? { proximo: null }), rotulo: 'Sim' },
+              { ...(opcoes[1] ?? { proximo: null }), rotulo: 'Não' },
+            ],
+            spec,
+          };
+        case 'multipla':
+          return {
+            ...base,
+            tipo: 'multipla',
+            texto,
+            variavel: variavel ?? '',
+            itens: Array.isArray(n['itens'])
+              ? (n['itens'] as Array<Record<string, unknown>>)
+                  .slice(0, LIMITS.itens)
+                  .map((it) => ({ rotulo: str(it?.['rotulo'], LIMITS.rotulo) }))
+              : [],
+            nenhum: optStr(n['nenhum'], LIMITS.rotulo),
+            textoApos: optStr(n['textoApos'], LIMITS.texto),
+            proximo,
+            spec,
+          };
+        case 'arquivos':
+          return {
+            ...base,
+            tipo: 'arquivos',
+            texto,
+            textoApos: optStr(n['textoApos'], LIMITS.texto),
+            minimo:
+              n['minimo'] === undefined ? undefined : Number(n['minimo']) || 0,
+            proximo,
+            spec,
+          };
+        case 'ferramenta': {
+          const params: Record<string, string | number | boolean | null> = {};
+          for (const [k, v] of Object.entries(
+            (n['params'] as Record<string, unknown>) ?? {},
+          )) {
+            if (typeof v === 'boolean' || typeof v === 'number')
+              params[k.slice(0, 40)] = v;
+            else if (v === null) params[k.slice(0, 40)] = null;
+            else params[k.slice(0, 40)] = str(v, LIMITS.texto);
+          }
+          return {
+            ...base,
+            tipo: 'ferramenta',
+            ferramenta: str(n['ferramenta'], 60),
+            params,
+            variavel,
+            proximo,
+            falha: nullableId(n['falha']),
+            semOpcoes: nullableId(n['semOpcoes']),
+            spec,
+          };
+        }
+        case 'condicao':
+          return {
+            ...base,
+            tipo: 'condicao',
+            regras: Array.isArray(n['regras'])
+              ? (n['regras'] as Array<Record<string, unknown>>)
+                  .slice(0, 10)
+                  .map((r) => ({
+                    variavel: str(r?.['variavel'], 30),
+                    op: [
+                      'igual',
+                      'diferente',
+                      'contem',
+                      'vazio',
+                      'nao_vazio',
+                    ].includes(String(r?.['op']))
+                      ? (r['op'] as 'igual')
+                      : 'igual',
+                    valor: optStr(r?.['valor'], 120),
+                    proximo: nullableId(r?.['proximo']),
+                  }))
+              : [],
+            senao: nullableId(n['senao']),
+          };
+        case 'ir_para':
+          return {
+            ...base,
+            tipo: 'ir_para',
+            fluxo: slug(asText(n['fluxo'])).slice(0, 30),
+          };
+        case 'encaminhar':
+          return {
+            ...base,
+            tipo: 'encaminhar',
+            texto: optStr(n['texto'], LIMITS.texto),
+            reutilizarAtendente: n['reutilizarAtendente'] === true,
+            spec,
+          };
+        case 'fim':
+          return {
+            ...base,
+            tipo: 'fim',
+            texto: optStr(n['texto'], LIMITS.texto),
+            spec,
+          };
+        default:
+          errors.push(
+            `${label}: a etapa “${base.titulo || base.id}” tem um tipo desconhecido.`,
+          );
+          return { ...base, tipo: 'mensagem', texto, proximo };
+      }
+    });
+  }
+
+  private normalizeSpec(raw: unknown): NodeSpec | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const s = raw as Record<string, unknown>;
+    const pontos = Array.isArray(s['pontos'])
+      ? (s['pontos'] as unknown[])
+          .map((p) =>
+            Array.isArray(p) ? p.map((x) => str(x, 40)).filter(Boolean) : [],
+          )
+          .filter((p) => p.length)
+      : undefined;
+    const out: NodeSpec = {
+      objetivo: optStr(s['objetivo'], 300),
+      pontos,
+      saudacao: s['saudacao'] === true || undefined,
+      usaNome: s['usaNome'] === true || undefined,
+      maxChars: typeof s['maxChars'] === 'number' ? s['maxChars'] : undefined,
+    };
+    return Object.values(out).some((v) => v !== undefined) ? out : undefined;
   }
 
   private validateKb(
@@ -276,8 +557,8 @@ export class ChatbotContentService implements OnModuleInit {
       errors.push(`${label}: lista inválida.`);
       return [];
     }
-    if (input.length > MAX_KB) {
-      errors.push(`${label}: no máximo ${MAX_KB} assuntos.`);
+    if (input.length > LIMITS.kb) {
+      errors.push(`${label}: no máximo ${LIMITS.kb} assuntos.`);
       return [];
     }
     const ids = new Set<string>();
@@ -292,10 +573,10 @@ export class ChatbotContentService implements OnModuleInit {
         );
         return;
       }
-      let id = strip(String(e?.id ?? ''))
-        .replace(/[^a-z0-9_-]/g, '')
-        .slice(0, 40);
-      if (!id) id = `item-${i + 1}`;
+      let id =
+        strip(String(e?.id ?? ''))
+          .replace(/[^a-z0-9_-]/g, '')
+          .slice(0, 40) || `item-${i + 1}`;
       while (ids.has(id)) id = `${id}-x`;
       ids.add(id);
       let keywords = (Array.isArray(e?.keywords) ? e.keywords : [])
@@ -328,164 +609,90 @@ export class ChatbotContentService implements OnModuleInit {
     return { tone: tone in TONES ? tone : 'padrao', instructions };
   }
 
-  private validateFlows(input: unknown, errors: string[]): CustomFlow[] {
-    if (input === undefined || input === null) return [];
-    if (!Array.isArray(input)) {
-      errors.push('Fluxos inválidos.');
-      return [];
-    }
-    if (input.length > 10) errors.push('São permitidos no máximo 10 fluxos.');
-    const ids = new Set<string>();
-    const opcoes = new Set<number>();
-    const out: CustomFlow[] = [];
-    input.slice(0, 10).forEach((raw: Partial<CustomFlow>, i) => {
-      const nome = String(raw?.nome ?? '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      const label = nome || `Fluxo ${i + 1}`;
-      if (nome.length < 2 || nome.length > 40)
-        errors.push(`${label}: o nome precisa ter de 2 a 40 caracteres.`);
-      let id = slug(String(raw?.id ?? nome)).slice(0, 30) || `fluxo_${i + 1}`;
-      while (ids.has(id)) id = `${id}_x`.slice(0, 30);
-      ids.add(id);
-      const ativo = raw?.ativo !== false;
-      const opcao = raw?.menuOpcao == null ? null : Number(raw.menuOpcao);
-      if (ativo) {
-        if (
-          opcao === null ||
-          !Number.isInteger(opcao) ||
-          opcao < 6 ||
-          opcao > 9
-        )
-          errors.push(
-            `${label}: escolha a opção do menu (6 a 9) para ele aparecer ao cliente, ou deixe-o desativado.`,
-          );
-        else if (opcoes.has(opcao))
-          errors.push(
-            `${label}: a opção ${opcao} do menu já é usada por outro fluxo.`,
-          );
-        else opcoes.add(opcao);
-      }
-      const nos: FlowNode[] = (Array.isArray(raw?.nos) ? raw.nos : []).map(
-        (n: FlowNode) => ({
-          id: String(n?.id ?? '').slice(0, 30),
-          tipo: n?.tipo,
-          titulo: String(n?.titulo ?? '')
-            .trim()
-            .slice(0, 60),
-          texto:
-            n?.texto === undefined
-              ? undefined
-              : String(n.texto).replace(/\r/g, '').trim(),
-          proximo: n?.proximo ?? null,
-          opcoes: Array.isArray(n?.opcoes)
-            ? n.opcoes.map((o) => ({
-                rotulo: String(o?.rotulo ?? '').trim(),
-                proximo: o?.proximo ?? null,
-              }))
-            : undefined,
-          variavel: n?.variavel ? String(n.variavel) : undefined,
-          validacao:
-            n?.validacao === 'nome'
-              ? 'nome'
-              : n?.validacao === 'texto'
-                ? 'texto'
-                : undefined,
-          minimo: n?.minimo === undefined ? undefined : Number(n.minimo) || 0,
-          acao: n?.acao,
-          armazenar: n?.armazenar === 'drive' ? 'drive' : undefined,
-          pasta:
-            n?.pasta === 'criar' || n?.pasta === 'existente'
-              ? n.pasta
-              : undefined,
-        }),
-      );
-      const flow: CustomFlow = {
-        id,
-        nome,
-        descricao: raw?.descricao
-          ? String(raw.descricao).trim().slice(0, 200)
-          : undefined,
-        ativo,
-        menuOpcao: opcao,
-        nos,
-        reescrever: raw?.reescrever === true,
-        guidance: this.validateGuidance(
-          raw?.guidance ?? {},
-          errors,
-          `${label} — jeito de falar`,
-        ),
-        kb: raw?.kb
-          ? this.validateKb(raw.kb, errors, `${label} — o que ela sabe`)
-          : [],
-      };
-      for (const p of checkFlow(flow)) errors.push(`${label}: ${p}`);
-      out.push(flow);
-    });
-    return out;
-  }
+  // ───────────────────────── prévia de um fluxo em rascunho ─────────────────────────
 
-  /** Roda um fluxo (rascunho) sem enviar nada: devolve o que o bot diria e o novo estado. */
+  /** Roda um fluxo do rascunho sem enviar nada: devolve o que o bot diria e o novo estado. */
   previewFlow(input: {
-    fluxo: unknown;
-    estado: CustomState | null;
+    fluxos: unknown;
+    fluxoId: string;
+    estado: FlowState | null;
     texto?: string;
   }) {
-    const errors: string[] = [];
-    const [flow] = this.validateFlows(
-      [{ ...(input.fluxo as object), ativo: false }],
-      errors,
+    const doc = this.validate(
+      { ...emptyDoc(), fluxos: input.fluxos, kb: null, sistema: {} },
+      false,
     );
-    if (errors.length) throw new BadRequestException(errors);
-    const r =
-      input.estado && input.estado.flowId === flow.id
+    const alvo =
+      doc.fluxos.find(
+        (f) => f.id === slug(String(input.fluxoId ?? '')).slice(0, 30),
+      ) ?? doc.fluxos[0];
+    if (!alvo) throw new BadRequestException('Fluxo não encontrado.');
+    const problemas = checkFlow(alvo, this.tools, doc.fluxos);
+    if (problemas.length) throw new BadRequestException(problemas);
+    const published = {
+      fluxos: doc.fluxos.map((f) => ({ ...f, ativo: true })),
+      sistema: { ...DEFAULT_SYSTEM },
+    };
+    const efeitos: string[] = [];
+    let r =
+      input.estado && input.estado.flowId === alvo.id
         ? stepFlow(
-            flow,
+            published,
             input.estado,
-            { text: input.texto ?? '', hasFile: false },
+            this.parsePreview(published, input.estado, input.texto ?? ''),
             { maxInvalid: 3 },
           )
-        : startFlow(flow, null);
-    const rotulos: Record<string, string> = {
-      criar_pasta: 'Drive: criar a pasta do cliente',
-      salvar_respostas: 'Drive: salvar as respostas',
-      handoff: 'Encaminhar a um atendente',
-    };
+        : startFlow(published, alvo.id, {});
+    // ferramentas rodam em modo simulado até a próxima etapa de espera
+    for (let guard = 0; guard < 20 && r.state; guard++) {
+      const eff = r.effects.find((e) => e.type === 'ferramenta');
+      if (!eff || eff.type !== 'ferramenta') break;
+      const tool = this.tools.get(eff.ferramenta);
+      efeitos.push(tool ? tool.label : eff.ferramenta);
+      const result = tool
+        ? tool.simular({
+            conv: {
+              contactId: 0,
+              ticketId: 0,
+              nome: r.state.vars['nome'] ?? null,
+              numero: null,
+              driveFolderId: null,
+            },
+            state: r.state,
+            params: eff.params,
+            flowNome: alvo.nome,
+            rotulos: {},
+          })
+        : { ok: false as const, motivo: 'desconhecida' };
+      const next = resumeTool(published, r.state, result);
+      r = {
+        ...next,
+        replies: [...r.replies, ...next.replies],
+        effects: next.effects,
+        nome: next.nome ?? r.nome,
+      };
+    }
+    for (const e of r.effects)
+      if (e.type === 'handoff') efeitos.push('Encaminhar a um atendente');
     return {
       estado: r.state,
-      mensagens: r.replies,
-      efeitos: r.effects.map((e) => rotulos[e.type]),
+      mensagens: r.replies.map((x) => x.texto),
+      efeitos,
       saiu: r.saiu,
     };
   }
 
-  private checkMessage(
-    key: MessageKey,
-    text: string,
-    menuDesativado: number[],
-  ): string | null {
-    if (!text)
-      return 'o texto não pode ficar vazio (use "Restaurar padrão" para voltar ao original).';
-    if (text.length > MAX_MESSAGE)
-      return `o texto passa de ${MAX_MESSAGE} caracteres.`;
-    const base = DEFAULT_MESSAGES[key];
-    const want = placeholdersOf(base);
-    const have = placeholdersOf(text);
-    const missing = want.filter((p) => !have.includes(p));
-    if (missing.length)
-      return `falta ${missing.map((p) => `{${p}}`).join(', ')} — o sistema preenche isso na hora de enviar.`;
-    const extra = have.filter((p) => !want.includes(p));
-    if (extra.length)
-      return `${extra.map((p) => `{${p}}`).join(', ')} não existe nesta mensagem.`;
-    const isMenu = key === 'menu_inicial' || key === 'menu_reapresentado';
-    const needNumbers = optionNumbersOf(base).filter(
-      (n) => !(isMenu && menuDesativado.includes(n)),
+  private parsePreview(
+    published: { fluxos: FlowDoc[]; sistema: SystemMessages },
+    state: FlowState,
+    texto: string,
+  ) {
+    return (
+      parseText(published, state, texto, false) ?? {
+        kind: 'valor' as const,
+        valor: texto,
+      }
     );
-    const haveNumbers = optionNumbersOf(text);
-    const lost = needNumbers.filter((n) => !haveNumbers.includes(n));
-    if (lost.length)
-      return `as opções ${lost.map((n) => `*${n}*`).join(', ')} precisam continuar no texto, porque o cliente responde com esses números.`;
-    return null;
   }
 
   // ───────────────────────── aplicação em memória ─────────────────────────
@@ -495,44 +702,24 @@ export class ChatbotContentService implements OnModuleInit {
     if (json === this.appliedJson) return;
     this.appliedJson = json;
 
-    const messages = MESSAGES as unknown as Record<string, string>;
-    for (const key of Object.keys(DEFAULT_MESSAGES))
-      messages[key] = doc.messages[key] ?? DEFAULT_MESSAGES[key as MessageKey];
-
-    for (const n of Object.keys(DEFAULT_CATEGORIAS))
-      CATEGORIAS_AMBIENTE[Number(n)] =
-        doc.categorias[n] ?? DEFAULT_CATEGORIAS[Number(n)];
-
     const kb = (doc.kb ?? DEFAULT_KB).map((e) => ({
       ...e,
       keywords: [...e.keywords],
     }));
     KNOWLEDGE_BASE.splice(0, KNOWLEDGE_BASE.length, ...kb);
-    setExtraAllowedNumbers(kb.map((e) => e.text));
+    setExtraAllowedNumbers([
+      ...kb.map((e) => e.text),
+      ...doc.fluxos.flatMap((f) => (f.kb ?? []).map((e) => e.text)),
+    ]);
 
-    runtimeContent.guidance = { ...doc.guidance };
-    runtimeContent.menuDesativado = [...doc.menuDesativado];
-    runtimeContent.fluxos = doc.fluxos.map((f) =>
-      JSON.parse(JSON.stringify(f)),
-    );
-
-    // Fluxos ativos aparecem no menu inicial, depois da última opção numerada.
-    const extras = doc.fluxos
-      .filter((f) => f.ativo && f.menuOpcao)
-      .sort((a, b) => (a.menuOpcao ?? 0) - (b.menuOpcao ?? 0))
-      .map((f) => `*${f.menuOpcao}* - ${f.nome}`);
-    if (extras.length)
-      for (const key of ['menu_inicial', 'menu_reapresentado'] as const) {
-        const lines = messages[key].split('\n');
-        let last = -1;
-        lines.forEach((l, i) => {
-          if (/^\*\d{1,2}\* - /.test(l)) last = i;
-        });
-        if (last >= 0) lines.splice(last + 1, 0, ...extras);
-        else lines.push(...extras);
-        messages[key] = lines.join('\n');
-      }
-    refreshMessageMatchers();
+    runtimeContent.guidance = {
+      tone: doc.guidance.tone as ToneKey,
+      instructions: doc.guidance.instructions,
+    };
+    runtimeContent.published = {
+      fluxos: JSON.parse(JSON.stringify(doc.fluxos)) as FlowDoc[],
+      sistema: { ...DEFAULT_SYSTEM, ...doc.sistema },
+    };
   }
 
   // ───────────────────────── armazenamento ─────────────────────────
@@ -543,7 +730,12 @@ export class ChatbotContentService implements OnModuleInit {
     if (!row) return null;
     try {
       const parsed = JSON.parse(row.value) as Stored;
-      return parsed?.doc ? parsed : null;
+      if (!parsed?.doc) return null;
+      if (isLegacyDoc(parsed.doc)) {
+        // conteúdo gravado pela versão anterior da tela: converte na leitura (e ao publicar, grava já convertido)
+        return { ...parsed, doc: convertLegacyDoc(parsed.doc) };
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -554,7 +746,7 @@ export class ChatbotContentService implements OnModuleInit {
       key,
       JSON.stringify(stored),
       CATEGORY,
-      'Conteúdo do chatbot (mensagens, base, ambientes, guia da IA)',
+      'Conteúdo do chatbot (fluxos, mensagens do sistema, base, jeito de falar)',
     );
   }
 }

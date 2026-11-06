@@ -45,7 +45,7 @@ export class GosacMessengerService {
         return await fn();
       } catch (error) {
         lastError = error;
-        const status = (error as any)?.response?.status;
+        const status = error?.response?.status;
         // 4xx (exceto 429) não melhora tentando de novo
         if (status && status >= 400 && status < 500 && status !== 429) break;
         await sleep(400 * i);

@@ -26,6 +26,7 @@ import { FaqAgent } from './agents/faq.agent';
 import { VerifierAgent } from './agents/verifier.agent';
 import { WriterAgent } from './agents/writer.agent';
 import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
+import { ToolRegistry } from './tools/tool.registry';
 
 @Module({
   imports: [
@@ -59,7 +60,8 @@ import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
     VerifierAgent,
     WriterAgent,
     ChatbotHumanizerService,
+    ToolRegistry,
   ],
-  exports: [ChatbotService],
+  exports: [ChatbotService, ToolRegistry],
 })
 export class ChatbotModule {}

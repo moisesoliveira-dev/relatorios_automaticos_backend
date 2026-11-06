@@ -1,12 +1,15 @@
-import { MESSAGES, MessageKey } from './chatbot.messages';
+import { MessageKey } from './chatbot.messages';
 
 /**
- * Pontos essenciais de comunicação de cada mensagem do bot.
+ * Pontos essenciais de comunicação das mensagens da Vera.
  *
  * A IA (agente Redator) escolhe COMO dizer — tom, saudação, reconhecer o que o cliente falou —
  * mas só pode enviar o texto se TODOS os pontos abaixo estiverem presentes. O que é "bloco fixo"
  * (lista de opções, endereço, horários) é anexado pelo código, literalmente, e nunca reescrito.
- * Se a IA falhar, demorar ou esquecer algum ponto, vai a mensagem original (MESSAGES).
+ * Se a IA falhar, demorar ou esquecer algum ponto, vai a mensagem original.
+ *
+ * Com o motor de fluxos, estas especificações viajam dentro de cada etapa (`node.spec`); esta
+ * tabela é o valor inicial das etapas do seed.
  */
 export interface Point {
   /** Palavras-chave (sem acento, minúsculas): basta uma delas aparecer no texto final. */
@@ -114,7 +117,6 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
       'Pedir que o cliente escolha o melhor horário para a medição entre os listados.',
     pontos: [p('horario', 'horarios'), p('medicao', 'medir', 'medidas')],
     maxChars: 220,
-    blocoRegex: /\*1 - [\s\S]*$/,
   },
   horario_agendado: {
     objetivo:
@@ -126,12 +128,6 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
     ],
     usaNome: true,
     maxChars: 330,
-  },
-  horario_indisponivel: {
-    objetivo:
-      'Avisar que o horário escolhido acabou de ser reservado por outra pessoa e pedir para escolher outro.',
-    pontos: [p('horario'), p('outro', 'outra', 'outros')],
-    maxChars: 200,
   },
   info_boleto: {
     objetivo:
@@ -156,24 +152,6 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
       'Convidar o cliente para conhecer a loja e perguntar se quer agendar uma visita.',
     pontos: [p('loja'), p('visita')],
     maxChars: 300,
-  },
-  referencias_ok: {
-    objetivo:
-      'Pedir que, quando terminar de escolher os ambientes, envie a palavra OK para confirmar e ser redirecionado ao atendente.',
-    pontos: [p('ok'), p('atendente')],
-    maxChars: 220,
-  },
-  aguardar_ok_atendente: {
-    objetivo:
-      'Pedir que, ao terminar de enviar, mande a palavra OK para ser redirecionado ao atendente.',
-    pontos: [p('ok'), p('atendente')],
-    maxChars: 220,
-  },
-  aguardar_ok_continuar: {
-    objetivo:
-      'Pedir que, ao terminar de enviar, mande a palavra OK para continuarem o atendimento.',
-    pontos: [p('ok'), p('continuar', 'continuarmos', 'seguir', 'seguirmos')],
-    maxChars: 220,
   },
   reconhecimento: {
     objetivo:
@@ -230,15 +208,12 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
   },
   invalida_ambientes: {
     objetivo:
-      'Pedir que envie os números dos ambientes; se já enviou, mandar OK para confirmar. É a última etapa antes do atendente.',
-    pontos: [p('ambiente', 'ambientes'), p('ok', 'palavra')],
+      'Pedir que envie os números dos itens; se já enviou, mandar OK para confirmar.',
+    pontos: [
+      p('ambiente', 'ambientes', 'item', 'itens', 'opcao', 'opcoes'),
+      p('ok', 'palavra'),
+    ],
     maxChars: 260,
-  },
-  invalida_horario: {
-    objetivo:
-      'Pedir que envie o número de um dos horários listados; é a última etapa antes do atendimento humano.',
-    pontos: [p('opcao', 'opcoes', 'horario', 'numero')],
-    maxChars: 220,
   },
   fora_escopo: {
     objetivo:
@@ -274,61 +249,7 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
   },
 };
 
-/** Mensagens que nunca passam pelo Redator (não são usadas pelo fluxo atual ou são dados puros). */
-export const EXEMPT: MessageKey[] = [
-  'nao_quer_agendar',
-  'invalida_nome_1_etapa',
-  'invalida_nome_2_etapas',
-];
-
-// ───────────────────────── identificação do texto original ─────────────────────────
-
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-interface Matcher {
-  key: MessageKey;
-  re: RegExp;
-}
-
-const buildMatchers = (): Matcher[] =>
-  (Object.keys(MESSAGES) as MessageKey[]).map((key) => {
-    const text: string = MESSAGES[key];
-    if (key === 'escolher_horario') {
-      return {
-        key,
-        re: new RegExp(
-          `^${escapeRe(text.slice(0, text.indexOf('{horario1}')).split('*1 -')[0])}`,
-        ),
-      };
-    }
-    const re = escapeRe(text).replace(/\\\{nome\\\}/g, '(?<nome>.+?)');
-    return { key, re: new RegExp(`^${re}$`, 's') };
-  });
-
-let MATCHERS: Matcher[] = buildMatchers();
-
-/** Chamado quando os textos são trocados pela tela (publicar/reverter). */
-export function refreshMessageMatchers(): void {
-  MATCHERS = buildMatchers();
-}
-
-export interface Identified {
-  key: MessageKey;
-  /** Texto original (já preenchido). */
-  text: string;
-  nome?: string;
-}
-
-/** Descobre qual mensagem do catálogo é este texto (null = texto livre, ex.: resposta de FAQ). */
-export function identifyMessage(text: string): Identified | null {
-  for (const m of MATCHERS) {
-    const hit = m.re.exec(text);
-    if (hit) return { key: m.key, text, nome: hit.groups?.nome };
-  }
-  return null;
-}
-
-/** Separa o texto original em "o que a IA pode reescrever" e "bloco fixo" (opções, endereço, horários). */
+/** Separa o texto em "o que a IA pode reescrever" e "bloco fixo" (opções, endereço, horários, rodapé). */
 export function splitBlock(
   spec: MessageSpec,
   text: string,
@@ -341,7 +262,9 @@ export function splitBlock(
       : { head: text.trim(), block: '' };
   }
   const lines = text.split('\n');
-  const idx = lines.findIndex((l) => /^\s*\*?\d{1,2}\*?\s*[-–]\s*\S/.test(l));
+  const idx = lines.findIndex(
+    (l) => /^\s*\*?\d{1,2}\*?\s*[-–]\s*\S/.test(l) || /^\s*👉/.test(l),
+  );
   if (idx < 0) return { head: text.trim(), block: '' };
   return {
     head: lines.slice(0, idx).join('\n').trim(),

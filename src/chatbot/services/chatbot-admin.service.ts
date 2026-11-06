@@ -7,48 +7,36 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
-import { decide, promptFor, restartDecision } from '../domain/chatbot.flow';
-import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
-import type { Guidance } from '../domain/content-runtime';
 import {
-  customToDecision,
+  fluxoPorId,
+  guidanceOf,
+  runtimeContent,
+  sistema,
+} from '../domain/content-runtime';
+import { KNOWLEDGE_BASE } from '../domain/knowledge-base';
+import {
+  currentNode,
+  entryFlow,
+  parseText,
   promptOf,
+  resumeTool,
   startFlow,
   stepFlow,
-} from '../domain/custom-flow';
-import { ChatbotHumanizerService } from './chatbot-humanizer.service';
-import { CATEGORIAS_AMBIENTE, MESSAGES } from '../domain/chatbot.messages';
+  validOptions,
+} from '../engine/flow.engine';
 import {
-  Decision,
+  Effect,
   FlowInput,
+  FlowNode,
+  FlowResult,
   FlowState,
-  INITIAL_FLOW_STATE,
-  Step,
-  Trilha,
-} from '../domain/chatbot.types';
-import { parseInput } from '../domain/input-parser';
-import { KNOWLEDGE_BASE } from '../domain/knowledge-base';
-import { SPECS } from '../domain/message-specs';
+  Reply,
+} from '../engine/flow.types';
 import { ChatbotConversation } from '../entities/chatbot-conversation.entity';
-import { STEP_DESCRIPTION } from '../agents/interpreter.agent';
+import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { ChatbotService } from './chatbot.service';
-
-const STEPS: Step[] = [
-  'MENU',
-  'NOME',
-  'CONFIRMA_NOME',
-  'ENVIO_ARQUIVOS',
-  'CATEGORIAS',
-  'CUSTOM',
-  'CASA_AP',
-  'PLANTA_ACHOU',
-  'AGENDAR',
-  'HORARIO',
-  'VISITA',
-  'RECONHECIMENTO',
-  'HUMANO',
-];
-const TRILHAS: Trilha[] = ['projeto', 'planta', 'semNada', 'boleto', 'loja'];
+import { ToolRegistry } from '../tools/tool.registry';
+import { NODE_TYPES_INFO } from './chatbot-content.service';
 
 const MANAUS_MS = 4 * 3600_000;
 /** Início do dia em Manaus, como instante UTC. */
@@ -65,14 +53,17 @@ const maskPhone = (n: string | null) =>
 export interface SimulateInput {
   texto?: string;
   estado?: Record<string, unknown> | null;
-  inicio?: {
-    step?: string;
-    trilha?: string | null;
-    nome?: string | null;
-    /** Entrar direto neste fluxo próprio (publicado), sem passar pelo menu. */
-    fluxoId?: string;
-  };
+  /** Só no começo: entrar direto num fluxo publicado (padrão: o fluxo de início). */
+  inicio?: { fluxoId?: string; nome?: string | null };
   usarIA?: boolean;
+}
+
+/** Estado da conversa simulada (vai e volta do navegador). */
+export interface SimState {
+  flow: FlowState | null;
+  nome: string | null;
+  humano: boolean;
+  offTopic: number;
 }
 
 const asInt = (v: unknown, max = 1000) =>
@@ -89,6 +80,7 @@ export class ChatbotAdminService {
     private readonly agents: AgentOrchestrator,
     private readonly chatbot: ChatbotService,
     private readonly humanizer: ChatbotHumanizerService,
+    private readonly tools: ToolRegistry,
   ) {}
 
   // ───────────────────────── visão geral ─────────────────────────
@@ -117,12 +109,22 @@ export class ChatbotAdminService {
         this.repo.count({ where: { handoffError: Not(IsNull()) } }),
       ]);
 
-    const byStep: Array<{ step: string; total: string }> = await this.repo
+    // Funil: em que fluxo/etapa cada conversa ativa está
+    const ativas = await this.repo
       .createQueryBuilder('c')
-      .select('c.step', 'step')
-      .addSelect('COUNT(*)', 'total')
-      .groupBy('c.step')
-      .getRawMany();
+      .select(['c.flow', 'c.step'])
+      .where("c.step = 'BOT'")
+      .getMany();
+    const funil: Record<string, number> = {};
+    for (const c of ativas) {
+      const f = c.flow ? fluxoPorId(c.flow.flowId) : undefined;
+      const n =
+        c.flow && f ? f.nos.find((x) => x.id === c.flow!.nodeId) : undefined;
+      const key = f ? `${f.nome} › ${n?.titulo ?? '?'}` : 'Início';
+      funil[key] = (funil[key] ?? 0) + 1;
+    }
+    funil['Com atendente'] = emHumano;
+
     const byTrilha: Array<{ trilha: string | null; total: string }> =
       await this.repo
         .createQueryBuilder('c')
@@ -158,17 +160,36 @@ export class ChatbotAdminService {
       return { dia: key, total: map.get(key) ?? 0 };
     });
 
+    const trilhas: Record<string, number> = {};
+    for (const r of byTrilha) {
+      const label = this.trilhaLabel(r.trilha);
+      trilhas[label] = (trilhas[label] ?? 0) + Number(r.total);
+    }
+
     return {
       totais: { total, novosHoje, novos7d, entreguesHoje, emHumano, comErro },
-      funil: Object.fromEntries(byStep.map((r) => [r.step, Number(r.total)])),
-      trilhas: Object.fromEntries(
-        byTrilha.map((r) => [r.trilha ?? 'sem_trilha', Number(r.total)]),
-      ),
+      funil,
+      trilhas,
       iaHoje: Number(sums?.iaHoje ?? 0),
       foraEscopo7d: Number(sums?.foraEscopo7d ?? 0),
       serie,
       sistema: await this.chatbot.stats(),
     };
+  }
+
+  /** Nome legível do caminho escolhido no menu (valor da opção → rótulo). */
+  private trilhaLabel(trilha: string | null): string {
+    if (!trilha) return 'Ainda no início';
+    const entry = entryFlow(runtimeContent.published);
+    for (const n of entry?.nos ?? [])
+      if (n.tipo === 'opcoes' && n.variavel === 'trilha') {
+        const o = n.opcoes.find((x) => (x.valor ?? x.rotulo) === trilha);
+        if (o)
+          return o.rotulo
+            .replace(/^\p{Extended_Pictographic}\s*/u, '')
+            .replace(/\.$/, '');
+      }
+    return trilha;
   }
 
   // ───────────────────────── conversas ─────────────────────────
@@ -184,7 +205,7 @@ export class ChatbotAdminService {
     const page = Math.max(q.pagina ?? 1, 1);
     const qb = this.repo.createQueryBuilder('c');
     if (q.step) {
-      if (!STEPS.includes(q.step as Step))
+      if (q.step !== 'BOT' && q.step !== 'HUMANO')
         throw new BadRequestException('Etapa inválida.');
       qb.andWhere('c.step = :step', { step: q.step });
     }
@@ -209,6 +230,20 @@ export class ChatbotAdminService {
     };
   }
 
+  private onde(c: ChatbotConversation): {
+    fluxo: string | null;
+    etapa: string | null;
+  } {
+    if (c.step === 'HUMANO') return { fluxo: null, etapa: 'Com atendente' };
+    const f = c.flow ? fluxoPorId(c.flow.flowId) : undefined;
+    const n =
+      c.flow && f ? f.nos.find((x) => x.id === c.flow!.nodeId) : undefined;
+    return {
+      fluxo: f?.nome ?? null,
+      etapa: n?.titulo ?? (c.flow ? '?' : 'Início'),
+    };
+  }
+
   private summary(c: ChatbotConversation) {
     return {
       id: c.id,
@@ -217,7 +252,8 @@ export class ChatbotAdminService {
       nome: c.nome ?? c.contactName,
       numero: maskPhone(c.numero),
       etapa: c.step,
-      trilha: c.trilha,
+      onde: this.onde(c),
+      trilha: this.trilhaLabel(c.trilha),
       emAtendimento: c.emAtendimento,
       finalizouTriagem: c.finalizouTriagem,
       invalidas: c.invalidCount,
@@ -233,12 +269,12 @@ export class ChatbotAdminService {
   async detail(id: string) {
     const c = await this.repo.findOne({ where: { id } });
     if (!c) throw new NotFoundException('Conversa não encontrada.');
+    const respostas = Object.entries(c.flow?.vars ?? {})
+      .filter(([k]) => !k.endsWith('_ids') && !k.endsWith('_rotulo'))
+      .map(([k, v]) => ({ variavel: k, valor: v }));
     return {
       ...this.summary(c),
-      local: c.local,
-      categorias: (c.categorias ?? [])
-        .map((n) => CATEGORIAS_AMBIENTE[n])
-        .filter(Boolean),
+      respostas,
       arquivos: c.arquivos,
       pastaDrive: !!c.driveFolderId,
       agendamento: c.agendamentoStart,
@@ -252,20 +288,23 @@ export class ChatbotAdminService {
     if (!c) throw new NotFoundException('Conversa não encontrada.');
     c.step = 'HUMANO';
     c.emAtendimento = true;
+    c.flow = null;
     await this.repo.save(c);
     return this.summary(c);
   }
 
-  /** Devolve a conversa ao bot, recomeçando do menu. */
+  /** Devolve a conversa ao bot: na próxima mensagem do cliente, recomeça pelo fluxo de início. */
   async devolverAoBot(id: string) {
     const c = await this.repo.findOne({ where: { id } });
     if (!c) throw new NotFoundException('Conversa não encontrada.');
-    Object.assign(c, restartDecision().patch);
+    c.step = 'BOT';
+    c.flow = null;
+    c.trilha = null;
     c.emAtendimento = false;
     c.finalizouTriagem = false;
     c.handoffError = null;
     c.driveFolderId = null;
-    c.slots = null;
+    c.invalidCount = 0;
     c.lastMessageAt = new Date();
     await this.repo.save(c);
     return this.summary(c);
@@ -273,118 +312,80 @@ export class ChatbotAdminService {
 
   // ───────────────────────── simulador (sem efeitos) ─────────────────────────
 
-  /** Reconstrói o estado vindo do navegador só com campos conhecidos e validados. */
-  private sanitizeState(raw: Record<string, unknown>): FlowState {
-    const step = STEPS.includes(raw.step as Step) ? (raw.step as Step) : null;
-    if (!step) throw new BadRequestException('Estado da simulação inválido.');
-    const state: FlowState = {
-      ...INITIAL_FLOW_STATE,
-      step,
-      trilha: TRILHAS.includes(raw.trilha as Trilha)
-        ? (raw.trilha as Trilha)
-        : null,
-      nome: asStr(raw.nome, 60),
-      nomePendente: asStr(raw.nomePendente, 60),
-      local: raw.local === 'casa' || raw.local === 'ap' ? raw.local : null,
-      categorias: Array.isArray(raw.categorias)
-        ? raw.categorias.filter((n) => Number.isInteger(n)).slice(0, 10)
-        : [],
-      arquivos: asInt(raw.arquivos),
-      invalidCount: asInt(raw.invalidCount),
-      offTopicCount: asInt(raw.offTopicCount),
-      slots: null,
-      custom: null,
-    };
-    if (step === 'CUSTOM') {
-      const c = raw.custom as Record<string, unknown> | null;
-      const flow =
-        c && typeof c.flowId === 'string' ? fluxoPorId(c.flowId) : undefined;
-      if (!c || !flow)
+  private sanitizeState(raw: Record<string, unknown>): SimState {
+    const f = raw['flow'] as Record<string, unknown> | null;
+    let flow: FlowState | null = null;
+    if (f && typeof f['flowId'] === 'string') {
+      if (!fluxoPorId(f['flowId']))
         throw new BadRequestException(
           'Este fluxo não está mais publicado: recomece o teste.',
         );
       const vars: Record<string, string> = {};
-      for (const [k, v] of Object.entries((c.vars as object) ?? {}).slice(
+      for (const [k, v] of Object.entries((f['vars'] as object) ?? {}).slice(
         0,
         40,
       ))
         if (typeof v === 'string') vars[k.slice(0, 40)] = v.slice(0, 300);
-      state.custom = {
-        flowId: flow.id,
-        nodeId: asStr(c.nodeId, 40) ?? '',
-        historico: Array.isArray(c.historico)
-          ? c.historico.filter((x) => typeof x === 'string').slice(-50)
+      const din = Array.isArray(f['dinamicas'])
+        ? (f['dinamicas'] as Array<Record<string, unknown>>).slice(0, 9)
+        : null;
+      flow = {
+        flowId: f['flowId'],
+        nodeId: asStr(f['nodeId'], 40) ?? '',
+        historico: Array.isArray(f['historico'])
+          ? f['historico'].filter((x) => typeof x === 'string').slice(-50)
           : [],
         vars,
-        arquivos: asInt(c.arquivos),
-        invalidos: asInt(c.invalidos),
+        arquivos: asInt(f['arquivos']),
+        invalidos: asInt(f['invalidos']),
+        dinamicas: din
+          ? din.map((o) => ({
+              rotulo: (asStr(o['rotulo'], 80) ?? ''),
+              valor: (asStr(o['valor'], 120) ?? ''),
+            }))
+          : null,
+        escolhidos: Array.isArray(f['escolhidos'])
+          ? f['escolhidos'].filter((x) => Number.isInteger(x)).slice(0, 20)
+          : null,
       };
     }
-    return state;
+    return {
+      flow,
+      nome: asStr(raw['nome'], 60),
+      humano: raw['humano'] === true,
+      offTopic: asInt(raw['offTopic']),
+    };
   }
 
   /**
    * Um passo de uma conversa simulada, do jeito que o cliente viveria hoje (conteúdo PUBLICADO):
-   * menu → fluxo padrão ou fluxo próprio, com IA, tom do fluxo e dúvidas pela base do fluxo.
+   * com IA, tom do fluxo e dúvidas pela base do fluxo. Ferramentas rodam em modo simulado.
    * Nada é enviado, gravado, criado no Drive nem encaminhado.
    */
   async converse(input: SimulateInput) {
     const usarIA = input.usarIA !== false;
     const texto = (input.texto ?? '').toString().slice(0, 600).trim();
-    const opts = {
-      maxInvalid: this.appConfig.chatbot.maxInvalid,
-      scheduling: this.appConfig.chatbot.ponttaEnabled,
-      maxOffTopic: this.appConfig.chatbot.maxOffTopic,
-    };
+    const p = runtimeContent.published;
+    const efeitos: string[] = [];
 
     // Chegada do cliente (sem estado): mostra a primeira tela
     if (!input.estado) {
-      if (input.inicio?.fluxoId) {
-        const flow = fluxoPorId(input.inicio.fluxoId);
-        if (!flow)
-          throw new BadRequestException(
-            'Este fluxo não está publicado: publique-o para testá-lo aqui.',
-          );
-        const d = customToDecision(startFlow(flow, null), flow.id, null);
-        const next: FlowState = {
-          ...INITIAL_FLOW_STATE,
-          categorias: [],
-          ...d.patch,
-        };
-        return this.resposta(
-          next,
-          d.replies,
-          d.effects,
-          'regras',
-          usarIA,
-          flow.id,
+      const alvo = input.inicio?.fluxoId
+        ? fluxoPorId(input.inicio.fluxoId)
+        : entryFlow(p);
+      if (!alvo)
+        throw new BadRequestException(
+          'Este fluxo não está publicado: publique-o para testá-lo aqui.',
         );
-      }
-      const step = STEPS.includes(input.inicio?.step as Step)
-        ? (input.inicio!.step as Step)
-        : 'MENU';
-      if (step === 'CUSTOM' || step === 'HUMANO')
-        throw new BadRequestException('Escolha uma etapa do fluxo padrão.');
       const nome = asStr(input.inicio?.nome, 60);
-      const state: FlowState = {
-        ...INITIAL_FLOW_STATE,
-        categorias: [],
-        step,
-        trilha: TRILHAS.includes(input.inicio?.trilha as Trilha)
-          ? (input.inicio!.trilha as Trilha)
-          : step === 'MENU'
-            ? null
-            : 'projeto',
-        nome,
-        nomePendente: step === 'CONFIRMA_NOME' ? (nome ?? 'Cliente') : null,
-        arquivos: step === 'ENVIO_ARQUIVOS' ? 1 : 0,
-        slots: step === 'HORARIO' ? [] : null,
-      };
-      const replies = promptFor(state);
+      const r = this.runTools(
+        startFlow(p, alvo.id, nome ? { nome } : {}),
+        efeitos,
+      );
       return this.resposta(
-        state,
-        replies.length ? replies : [MESSAGES.menu_inicial],
-        [],
+        { flow: r.state, nome: r.nome ?? nome, humano: false, offTopic: 0 },
+        r,
+        efeitos,
         'regras',
         usarIA,
       );
@@ -392,128 +393,228 @@ export class ChatbotAdminService {
 
     if (!texto)
       throw new BadRequestException('Digite uma mensagem para simular.');
-    const state = this.sanitizeState(input.estado);
-    if (state.step === 'HUMANO')
+    const sim = this.sanitizeState(input.estado);
+    if (sim.humano)
       throw new BadRequestException(
         'A conversa já foi encaminhada: recomece o teste.',
       );
-
-    let origem: 'regras' | 'ia' | 'nenhuma' = 'regras';
-    let decision: Decision;
-
-    if (state.step === 'CUSTOM') {
-      const flow = fluxoPorId(state.custom!.flowId)!;
-      const r = stepFlow(
-        flow,
-        state.custom!,
-        { text: texto, hasFile: false },
-        { maxInvalid: opts.maxInvalid },
+    if (!sim.flow || !currentNode(p, sim.flow)) {
+      const entry = entryFlow(p);
+      if (!entry)
+        throw new BadRequestException('Nenhum fluxo de início publicado.');
+      const r = this.runTools(
+        startFlow(p, entry.id, sim.nome ? { nome: sim.nome } : {}),
+        efeitos,
       );
-      decision = customToDecision(r, flow.id, state.nome);
-      if (r.invalido && flow.kb?.length && usarIA && this.agents.available) {
-        const answer = await this.agents.answerFaq(
-          texto,
-          flow.kb,
-          flow.guidance as Guidance | undefined,
-        );
-        const retomar = promptOf(flow, state.custom!);
-        if (answer && retomar) {
-          origem = 'ia';
-          decision = {
-            patch: { step: 'CUSTOM', custom: state.custom, invalidCount: 0 },
-            replies: [answer, retomar],
-            effects: [],
-            flowId: flow.id,
-          };
-        }
-      }
-    } else {
-      let entrada: FlowInput | null = parseInput(state, texto, false);
-      if (entrada === null) {
-        if (usarIA && this.agents.available) {
-          origem = 'ia';
-          entrada = await this.agents.resolve({
-            state,
-            message: texto,
-            history: [],
-          });
-        } else {
-          origem = 'nenhuma';
-          entrada = { kind: 'invalid' };
-        }
-      }
-      const flow =
-        state.step === 'MENU' && entrada.kind === 'option'
-          ? fluxoDaOpcao(entrada.value)
-          : undefined;
-      decision = flow
-        ? customToDecision(startFlow(flow, state.nome), flow.id, state.nome)
-        : decide(state, entrada, opts);
+      return this.resposta(
+        { ...sim, flow: r.state },
+        r,
+        efeitos,
+        'regras',
+        usarIA,
+      );
     }
 
-    const next: FlowState = { ...state, ...decision.patch };
+    let origem: 'regras' | 'ia' | 'nenhuma' = 'regras';
+    let entrada: FlowInput | null = parseText(p, sim.flow, texto, false);
+    if (entrada === null) {
+      if (usarIA && this.agents.available) {
+        origem = 'ia';
+        const node: FlowNode | null = currentNode(p, sim.flow) ?? null;
+        const flow = fluxoPorId(sim.flow.flowId);
+        entrada = await this.agents.resolve(
+          {
+            node,
+            state: sim.flow,
+            validOptions: validOptions(p, sim.flow),
+            rotulos: this.rotulosDe(node, sim.flow),
+            message: texto,
+            history: [],
+          },
+          flow?.kb?.length ? flow.kb : KNOWLEDGE_BASE,
+          guidanceOf(flow),
+        );
+      } else {
+        origem = 'nenhuma';
+        entrada = { kind: 'invalido' };
+      }
+    }
+
+    if (entrada.kind === 'fora_escopo') {
+      const max = this.appConfig.chatbot.maxOffTopic;
+      const offTopic = sim.offTopic + (entrada.severidade === 'grave' ? 2 : 1);
+      const replies: Reply[] =
+        offTopic >= max
+          ? [
+              {
+                texto: sistema().fora_escopo_limite,
+                sistema: 'fora_escopo_limite',
+              },
+            ]
+          : [
+              { texto: sistema().fora_escopo, sistema: 'fora_escopo' },
+              ...[promptOf(p, sim.flow)].filter((x): x is Reply => !!x),
+            ];
+      return this.resposta(
+        { ...sim, offTopic },
+        {
+          state: sim.flow,
+          replies,
+          effects: [],
+          saiu: null,
+          flowId: sim.flow.flowId,
+        },
+        efeitos,
+        origem,
+        usarIA,
+      );
+    }
+
+    const r = this.runTools(
+      stepFlow(p, sim.flow, entrada, {
+        maxInvalid: this.appConfig.chatbot.maxInvalid,
+      }),
+      efeitos,
+    );
     return this.resposta(
-      next,
-      decision.replies,
-      decision.effects,
+      { ...sim, flow: r.state, nome: r.nome ?? sim.nome },
+      r,
+      efeitos,
       origem,
       usarIA,
-      decision.flowId,
     );
   }
 
+  /** Executa as ferramentas em modo simulado até a próxima etapa de espera (ou saída). */
+  private runTools(first: FlowResult, efeitos: string[]): FlowResult {
+    let r = first;
+    const p = runtimeContent.published;
+    for (let guard = 0; guard < 12 && r.state; guard++) {
+      const eff = r.effects.find(
+        (e): e is Extract<Effect, { type: 'ferramenta' }> =>
+          e.type === 'ferramenta',
+      );
+      if (!eff) break;
+      const tool = this.tools.get(eff.ferramenta);
+      efeitos.push(
+        tool
+          ? `Ferramenta: ${tool.label}`
+          : `Ferramenta desconhecida: ${eff.ferramenta}`,
+      );
+      const flow = fluxoPorId(r.state.flowId);
+      const result = tool
+        ? tool.simular({
+            conv: {
+              contactId: -1,
+              ticketId: -1,
+              nome: r.state.vars['nome'] ?? null,
+              numero: null,
+              driveFolderId: null,
+            },
+            state: r.state,
+            params: eff.params,
+            flowNome: flow?.nome ?? '',
+            rotulos: {},
+          })
+        : { ok: false as const, motivo: 'desconhecida' };
+      const next = resumeTool(p, r.state, result);
+      r = {
+        ...next,
+        replies: [...r.replies, ...next.replies],
+        nome: next.nome ?? r.nome,
+      };
+    }
+    return r;
+  }
+
+  private rotulosDe(node: FlowNode | null, state: FlowState): string[] {
+    if (!node) return [];
+    if (node.tipo === 'opcoes' || node.tipo === 'confirmacao')
+      return node.opcoes.map((o) => o.rotulo);
+    if (node.tipo === 'multipla')
+      return [
+        ...node.itens.map((i) => i.rotulo),
+        ...(node.nenhum ? [node.nenhum] : []),
+      ];
+    if (node.tipo === 'ferramenta')
+      return (state.dinamicas ?? []).map((o) => o.rotulo);
+    return [];
+  }
+
   private async resposta(
-    state: FlowState,
-    replies: string[],
-    effects: Decision['effects'],
+    sim: SimState,
+    r: FlowResult,
+    efeitos: string[],
     origem: 'regras' | 'ia' | 'nenhuma',
     usarIA: boolean,
-    flowId?: string,
   ) {
-    // Encaminhar a um atendente encerra a conversa do bot (como no atendimento real)
-    const handoff = effects.find((e) => e.type === 'handoff');
-    const estado: FlowState = handoff
-      ? { ...state, step: 'HUMANO', custom: null }
-      : state;
-    const fid =
-      flowId ?? (estado.step === 'CUSTOM' ? estado.custom?.flowId : undefined);
+    const p = runtimeContent.published;
+    const hand = r.effects.find(
+      (e): e is Extract<Effect, { type: 'handoff' }> => e.type === 'handoff',
+    );
+    let replies = r.replies;
+    if (hand) {
+      efeitos.push('Encaminhar a um atendente (rodízio)');
+      if (!hand.jaAvisou) {
+        const nome = r.nome ?? sim.nome;
+        replies = [
+          ...replies,
+          nome
+            ? {
+                texto: sistema().redirecionando_com_nome.replace(
+                  /\{nome\}/g,
+                  nome,
+                ),
+                sistema: 'redirecionando_com_nome',
+              }
+            : { texto: sistema().redirecionando, sistema: 'redirecionando' },
+        ];
+      }
+    }
+    let state: SimState = { ...sim, humano: !!hand };
+    // voltou ao início sem encaminhar: mostra o menu de novo (como no atendimento real)
+    if (!r.state && !hand) {
+      const entry = entryFlow(p);
+      if (entry) {
+        const again = this.runTools(
+          startFlow(p, entry.id, state.nome ? { nome: state.nome } : {}),
+          efeitos,
+        );
+        replies = [...replies, ...again.replies];
+        state = { ...state, flow: again.state };
+      }
+    }
 
-    // Como o cliente leria: com a voz da IA (tom do fluxo), se ela estiver disponível e ligada no teste
-    let mensagens = replies;
+    let mensagens = replies.map((x) => x.texto);
     let reescrita = false;
     if (usarIA && this.humanizer.enabled && replies.length) {
       mensagens = await this.humanizer.compose(
-        { contactId: -1, nome: estado.nome, history: [] } as never,
+        { contactId: -1, nome: state.nome, history: [] },
         replies,
-        fid,
+        r.flowId,
       );
-      reescrita = mensagens.join('\n') !== replies.join('\n');
+      reescrita =
+        mensagens.join('\n') !== replies.map((x) => x.texto).join('\n');
     }
-    const rotulos: Record<string, string> = {
-      criar_pasta: 'Drive: criaria a pasta do cliente',
-      salvar_preferencias: 'Drive: salvaria as preferências',
-      salvar_respostas: 'Drive: salvaria as respostas',
-      oferecer_horarios: 'Pontta: ofereceria horários',
-      agendar: 'Pontta: agendaria a medição',
-      handoff: 'Encaminharia a um atendente (rodízio)',
-    };
-    const flow =
-      estado.step === 'CUSTOM' ? fluxoPorId(estado.custom!.flowId) : undefined;
-    const noAtual =
-      flow?.nos.findIndex((n) => n.id === estado.custom!.nodeId) ?? -1;
+
+    const flow = state.flow ? fluxoPorId(state.flow.flowId) : undefined;
+    const idx =
+      flow && state.flow
+        ? flow.nos.findIndex((n) => n.id === state.flow!.nodeId)
+        : -1;
     return {
-      estado,
+      estado: state,
       mensagens,
       reescrita,
       origem,
-      efeitos: effects.map((e) => rotulos[e.type] ?? e.type),
-      terminou: estado.step === 'HUMANO',
+      efeitos,
+      terminou: state.humano,
       onde: {
-        etapa: estado.step,
+        etapa: state.humano ? 'HUMANO' : 'BOT',
         fluxo: flow ? { id: flow.id, nome: flow.nome } : null,
         bloco:
-          flow && noAtual >= 0
-            ? { numero: noAtual + 1, titulo: flow.nos[noAtual].titulo }
+          flow && idx >= 0
+            ? { numero: idx + 1, titulo: flow.nos[idx].titulo }
             : null,
       },
       aviso:
@@ -526,20 +627,18 @@ export class ChatbotAdminService {
   // ───────────────────────── catálogo ─────────────────────────
 
   catalog() {
+    const p = runtimeContent.published;
     return {
-      etapas: STEPS.map((s) => ({
-        etapa: s,
-        descricao: STEP_DESCRIPTION[s] ?? null,
+      fluxos: p.fluxos.map((f) => ({
+        id: f.id,
+        nome: f.nome,
+        ativo: f.ativo,
+        papel: f.papel ?? null,
+        etapas: f.nos.length,
       })),
-      mensagens: Object.entries(MESSAGES).map(([chave, texto]) => ({
-        chave,
-        texto,
-        objetivo: SPECS[chave as keyof typeof SPECS]?.objetivo ?? null,
-        pontosEssenciais: (
-          SPECS[chave as keyof typeof SPECS]?.pontos ?? []
-        ).map((p) => p.anyOf[0]),
-      })),
-      categorias: CATEGORIAS_AMBIENTE,
+      tipos: NODE_TYPES_INFO,
+      ferramentas: this.tools.describe(),
+      sistema: p.sistema,
       baseConhecimento: KNOWLEDGE_BASE.map((k) => ({
         id: k.id,
         texto: k.text,

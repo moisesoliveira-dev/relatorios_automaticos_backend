@@ -3,27 +3,23 @@
  *   OPENAI_API_KEY=sk-... npm run chatbot:eval
  * Use antes de trocar de modelo/prompt: se a taxa cair, a mudança não vai para produção.
  * Metas (saem com código 1 se não forem atingidas): escopo >= 95%, manipulação = 100%, interpretação >= 90%.
+ *
+ * Os casos citam as etapas do atendimento da Vera pelos nomes antigos (MENU, NOME...); aqui elas são
+ * traduzidas para as etapas do seed do motor de fluxos.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { OpenAiService } from '../../src/chatbot/services/openai.service';
 import { ScopeAgent } from '../../src/chatbot/agents/scope.agent';
 import { InterpreterAgent } from '../../src/chatbot/agents/interpreter.agent';
-import {
-  INITIAL_FLOW_STATE,
-  FlowState,
-} from '../../src/chatbot/domain/chatbot.types';
 import { prefilter } from '../../src/chatbot/domain/scope.prefilter';
-import { WriterAgent } from '../../src/chatbot/agents/writer.agent';
+import { seedFlows, DEFAULT_SYSTEM } from '../../src/chatbot/engine/flow.seed';
 import {
-  MESSAGES,
-  MessageKey,
-} from '../../src/chatbot/domain/chatbot.messages';
-import { SPECS, splitBlock } from '../../src/chatbot/domain/message-specs';
-import {
-  assembleBubbles,
-  validateWriterOutput,
-} from '../../src/chatbot/domain/writer.validator';
+  currentNode,
+  validOptions,
+} from '../../src/chatbot/engine/flow.engine';
+import type { FlowState } from '../../src/chatbot/engine/flow.types';
+import type { AgentContext } from '../../src/chatbot/agents/agent.types';
 
 interface Case {
   msg: string;
@@ -34,6 +30,21 @@ interface Case {
   nome?: string;
   categorias?: number[];
 }
+
+/** Etapa antiga → (fluxo, etapa) do seed. */
+const STEP_MAP: Record<string, [string, string]> = {
+  MENU: ['vera', 'menu'],
+  NOME: ['projeto', 'nome'],
+  CONFIRMA_NOME: ['projeto', 'confirma'],
+  ENVIO_ARQUIVOS: ['projeto', 'arquivos'],
+  CATEGORIAS: ['planta', 'ambientes'],
+  CASA_AP: ['sem_nada', 'imovel'],
+  PLANTA_ACHOU: ['sem_nada', 'planta_achou'],
+  AGENDAR: ['sem_nada', 'agendar'],
+  HORARIO: ['sem_nada', 'horarios'],
+  VISITA: ['boleto', 'visita'],
+  RECONHECIMENTO: ['reconhecimento', 'pergunta'],
+};
 
 async function main() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -46,6 +57,7 @@ async function main() {
       temperature: process.env.OPENAI_TEMPERATURE === '' ? undefined : 0,
       timeoutMs: 20000,
     },
+    modelFor: () => process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   } as any;
   const openai = new OpenAiService(config);
   const scope = new ScopeAgent(openai);
@@ -53,6 +65,7 @@ async function main() {
   const cases: Case[] = JSON.parse(
     fs.readFileSync(path.join(__dirname, 'eval-dataset.json'), 'utf8'),
   );
+  const published = { fluxos: seedFlows(), sistema: DEFAULT_SYSTEM };
 
   let scopeOk = 0,
     manipTotal = 0,
@@ -62,14 +75,40 @@ async function main() {
   const failures: string[] = [];
 
   for (const c of cases) {
+    const [flowId, nodeId] = STEP_MAP[c.step] ?? STEP_MAP['MENU'];
     const state: FlowState = {
-      ...INITIAL_FLOW_STATE,
-      categorias: [],
-      step: c.step as any,
-      nomePendente: 'Teste',
-      slots: c.step === 'HORARIO' ? [] : null,
+      flowId,
+      nodeId,
+      historico: [],
+      vars: c.step === 'CONFIRMA_NOME' ? { nome: 'Teste' } : {},
+      arquivos: 0,
+      invalidos: 0,
+      dinamicas:
+        c.step === 'HORARIO'
+          ? [
+              { rotulo: '01/01/2026 07:00 - 09:00', valor: 'a' },
+              { rotulo: 'Nenhum desses horários.', valor: 'nenhum' },
+            ]
+          : null,
     };
-    const ctx = { state, message: c.msg, history: [] };
+    const node = currentNode(published, state) ?? null;
+    const rotulos =
+      node?.tipo === 'opcoes' || node?.tipo === 'confirmacao'
+        ? node.opcoes.map((o) => o.rotulo)
+        : node?.tipo === 'multipla'
+          ? [
+              ...node.itens.map((i) => i.rotulo),
+              ...(node.nenhum ? [node.nenhum] : []),
+            ]
+          : (state.dinamicas ?? []).map((o) => o.rotulo);
+    const ctx: AgentContext = {
+      node,
+      state,
+      validOptions: validOptions(published, state),
+      rotulos,
+      message: c.msg,
+      history: [],
+    };
 
     // Pré-filtro conta como parte da defesa: se ele bloqueia, o agente nem é chamado em produção.
     const pre = prefilter(c.msg);
@@ -100,17 +139,17 @@ async function main() {
       else if (interp?.kind === 'flow') {
         const i = interp.input as any;
         pass =
-          (c.acao === 'opcao' && i.kind === 'option' && i.value === c.opcao) ||
+          (c.acao === 'opcao' && i.kind === 'opcao' && i.index === c.opcao) ||
           (c.acao === 'nome' &&
-            i.kind === 'nome' &&
-            i.nome.toLowerCase() === c.nome!.toLowerCase()) ||
+            i.kind === 'valor' &&
+            i.valor.toLowerCase() === c.nome!.toLowerCase()) ||
           (c.acao === 'categorias' &&
-            i.kind === 'categorias' &&
-            JSON.stringify([...i.ids].sort()) ===
+            i.kind === 'itens' &&
+            JSON.stringify([...i.indices].sort()) ===
               JSON.stringify([...c.categorias!].sort())) ||
           (c.acao === 'confirmar_ok' && i.kind === 'ok') ||
-          (c.acao === 'voltar' && i.kind === 'back') ||
-          (c.acao === 'recomecar' && i.kind === 'restart') ||
+          (c.acao === 'voltar' && i.kind === 'voltar') ||
+          (c.acao === 'recomecar' && i.kind === 'recomecar') ||
           (c.acao === 'pedir_humano' && i.kind === 'humano');
       }
       if (pass) interpOk++;

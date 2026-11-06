@@ -89,4 +89,5 @@ docker compose up --build
 
 
 ## Chatbot com IA
-Módulo `src/chatbot/` (motor de regras puro + agentes OpenAI). Guia completo: `../docs/chatbot-verador/CHATBOT-IA.md`.
+Módulo `src/chatbot/`: motor de fluxos puro (`engine/`), catálogo de ferramentas (`tools/`) e agentes OpenAI (`agents/`).
+Todo atendimento é um fluxo montado na tela e publicado; o atendimento da Vera é o seed. Guia: `src/chatbot/README.md`.

@@ -10,7 +10,12 @@ import { SettingsService } from '../../settings/settings.service';
 
 export type FieldType = 'boolean' | 'number' | 'text' | 'secret';
 export type FieldGroup =
-  'geral' | 'ia' | 'comunicacao' | 'limites' | 'atendimento' | 'integracoes';
+  | 'geral'
+  | 'ia'
+  | 'comunicacao'
+  | 'limites'
+  | 'atendimento'
+  | 'integracoes';
 
 export interface ConfigField {
   key: string;

@@ -1,13 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Post,
   Put,
   Query,
-  Delete,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +23,8 @@ import { ChatbotAdminService } from './services/chatbot-admin.service';
 import { ChatbotContentService } from './services/chatbot-content.service';
 import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.service';
 import { ListConversationsDto, SimulateDto } from './dto/admin.dto';
+import { ToolRegistry } from './tools/tool.registry';
+import type { FlowState } from './engine/flow.types';
 
 /** Painel de operação da IA. Só master/admin com a aba "ia". */
 @Controller('chatbot')
@@ -35,6 +37,7 @@ export class ChatbotController {
     private readonly admin: ChatbotAdminService,
     private readonly config: ChatbotRuntimeConfigService,
     private readonly content: ChatbotContentService,
+    private readonly tools: ToolRegistry,
   ) {}
 
   private who(req: { user?: { email?: string } }): string | null {
@@ -80,10 +83,18 @@ export class ChatbotController {
     return this.admin.converse(body);
   }
 
+  /** Fluxos publicados, tipos de etapa, ferramentas e mensagens do sistema (para a tela). */
   @Get('catalog')
   @SkipThrottle()
   catalog() {
     return this.admin.catalog();
+  }
+
+  /** Ferramentas disponíveis para os fluxos (com parâmetros e pré-requisitos). */
+  @Get('tools')
+  @SkipThrottle()
+  listTools() {
+    return this.tools.describe();
   }
 
   @Get('config')
@@ -94,10 +105,10 @@ export class ChatbotController {
 
   @Put('config')
   saveConfig(@Body() body: { values: Record<string, unknown> }) {
-    return this.config.save(body?.values as Record<string, unknown>);
+    return this.config.save(body?.values);
   }
 
-  // ───────── conteúdo editável (mensagens, base, ambientes, guia da IA) ─────────
+  // ───────── conteúdo editável (fluxos, mensagens do sistema, base, jeito de falar) ─────────
 
   @Get('content')
   @SkipThrottle()
@@ -115,10 +126,19 @@ export class ChatbotController {
     return this.content.discardDraft();
   }
 
+  /** Prévia de um fluxo do rascunho: roda sem enviar nada (ferramentas em modo simulado). */
   @Post('content/flows/preview')
   @SkipThrottle()
-  previewFlow(@Body() body: { fluxo: unknown; estado: unknown; texto?: string }) {
-    return this.content.previewFlow(body as never);
+  previewFlow(
+    @Body()
+    body: {
+      fluxos: unknown;
+      fluxoId: string;
+      estado: FlowState | null;
+      texto?: string;
+    },
+  ) {
+    return this.content.previewFlow(body);
   }
 
   @Post('content/publish')

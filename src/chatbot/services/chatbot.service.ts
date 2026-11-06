@@ -12,31 +12,37 @@ import {
   isAllowedMediaUrl,
   parseAllowedHosts,
 } from '../../gosac/media-url.util';
-import { MESSAGES } from '../domain/chatbot.messages';
-import { fluxoDaOpcao, fluxoPorId } from '../domain/content-runtime';
 import {
-  CustomResult,
-  customToDecision,
+  fluxoPorId,
+  guidanceOf,
+  runtimeContent,
+  sistema,
+} from '../domain/content-runtime';
+import { KNOWLEDGE_BASE } from '../domain/knowledge-base';
+import {
+  currentNode,
+  entryFlow,
+  parseText,
   promptOf,
+  recognitionFlow,
+  resumeTool,
   startFlow,
   stepFlow,
-} from '../domain/custom-flow';
-import type { Guidance } from '../domain/content-runtime';
-import { decide, restartDecision } from '../domain/chatbot.flow';
-import { parseInput } from '../domain/input-parser';
-import { renderSlotList } from '../domain/scheduling';
+  validOptions,
+} from '../engine/flow.engine';
 import {
-  Decision,
   Effect,
   FlowInput,
+  FlowNode,
+  FlowResult,
   FlowState,
-  INITIAL_FLOW_STATE,
-} from '../domain/chatbot.types';
+  Reply,
+} from '../engine/flow.types';
+import type { ToolContext, ToolResult } from '../engine/tool.types';
 import {
   ChatbotConversation,
   HistoryTurn,
 } from '../entities/chatbot-conversation.entity';
-import { ChatbotBookedSlot } from '../entities/chatbot-booked-slot.entity';
 import { GosacMessengerService } from './gosac-messenger.service';
 import { OpenAiService } from './openai.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
@@ -46,6 +52,7 @@ import { ChatbotDriveService } from './chatbot-drive.service';
 import { ChatbotSchedulingService } from './chatbot-scheduling.service';
 import { ChatbotInboxService, PendingMessage } from './chatbot-inbox.service';
 import { ChatbotLockService } from './chatbot-lock.service';
+import { ToolRegistry } from '../tools/tool.registry';
 
 export interface Inbound {
   messageId?: string;
@@ -66,7 +73,6 @@ interface Batch {
   files: Inbound[];
   audio: boolean;
   last: Inbound;
-  timer?: NodeJS.Timeout;
 }
 
 const IGNORED_MEDIA = new Set(['hsm', 'transfer', 'impostor']);
@@ -80,6 +86,7 @@ const NON_FILE_MEDIA = new Set([
 /** Assinatura de atendente humano no texto: "*Nome:*\n..." */
 const AGENT_SIGNATURE = /\*\s*[^*]+:\s*\*\s*\n/;
 const MAX_PROCESSED_IDS = 20;
+const MAX_TOOL_CHAIN = 12;
 
 export function parseWebhook(payload: any): Inbound | null {
   const data = payload?.data ?? payload;
@@ -118,7 +125,14 @@ const sameManausDay = (a: Date, b: Date) => {
 };
 
 const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}…` : s);
+const manausDay = () =>
+  new Date(Date.now() - 4 * 3600_000).toISOString().slice(0, 10);
 
+/**
+ * Orquestra cada conversa: recebe do webhook, junta as mensagens, pede ao motor de fluxos a decisão,
+ * envia os textos (com a voz da IA quando ligada), executa ferramentas e entrega a um humano.
+ * Regras globais (cliente novo, ticket novo, atendente ativo, áudio, arquivos, limites) moram aqui.
+ */
 @Injectable()
 export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatbotService.name);
@@ -135,8 +149,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     private readonly appConfig: AppConfigService,
     @InjectRepository(ChatbotConversation)
     private readonly repo: Repository<ChatbotConversation>,
-    @InjectRepository(ChatbotBookedSlot)
-    private readonly booked: Repository<ChatbotBookedSlot>,
     private readonly messenger: GosacMessengerService,
     private readonly ai: OpenAiService,
     private readonly agents: AgentOrchestrator,
@@ -146,6 +158,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     private readonly scheduling: ChatbotSchedulingService,
     private readonly inbox: ChatbotInboxService,
     private readonly lock: ChatbotLockService,
+    private readonly tools: ToolRegistry,
   ) {
     this.allowedHosts = parseAllowedHosts(
       this.appConfig.gosacApi.baseUrl,
@@ -237,7 +250,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       return null;
     });
     if (!release) {
-      // Outra instância está atendendo este cliente e vai esvaziar a fila; confere de novo em instantes.
       const tries = (this.retries.get(contactId) ?? 0) + 1;
       if (tries <= 5) {
         this.retries.set(contactId, tries);
@@ -266,8 +278,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           await this.onError(contactId, error);
         } finally {
-          // Marca como feito mesmo se falhou: evita repetir para sempre uma mensagem problemática
-          // (o onError já entrega o cliente a um humano na segunda falha seguida).
           await this.inbox.markProcessed(rows.map((r) => r.id));
         }
       }
@@ -320,14 +330,14 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     this.logger.error(
       `Erro ao processar contato ${contactId} (${n}): ${(error as Error)?.stack ?? error}`,
     );
-    // Falhas repetidas: não deixa o cliente preso — entrega a um humano.
+    // Falhas repetidas: não deixa o cliente preso, entrega a um humano.
     if (n >= 2) {
       this.errorCount.delete(contactId);
       const conv = await this.repo
         .findOne({ where: { contactId } })
         .catch(() => null);
       if (conv && conv.step !== 'HUMANO')
-        await this.finishHandoff(conv, 'redirecionando').catch(() => undefined);
+        await this.finishHandoff(conv, {}).catch(() => undefined);
     }
   }
 
@@ -339,6 +349,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       this.newConversation(msg);
     conv.ticketId = msg.ticketId;
     conv.step = 'HUMANO';
+    conv.flow = null;
     conv.emAtendimento = true;
     conv.finalizouTriagem = true;
     conv.lastMessageAt = new Date();
@@ -351,9 +362,13 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       ticketId: msg.ticketId,
       numero: msg.numero ?? null,
       contactName: msg.contactName ? clip(msg.contactName, 120) : null,
-      ...INITIAL_FLOW_STATE,
-      categorias: [],
-      slots: null,
+      step: 'BOT',
+      trilha: null,
+      nome: null,
+      flow: null,
+      arquivos: 0,
+      invalidCount: 0,
+      offTopicCount: 0,
       emAtendimento: false,
       finalizouTriagem: false,
       history: [],
@@ -362,39 +377,24 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private flowOf(conv: ChatbotConversation): FlowState {
+  private composeCtx(conv: ChatbotConversation) {
     return {
-      step: conv.step,
-      trilha: conv.trilha,
+      contactId: conv.contactId,
       nome: conv.nome,
-      nomePendente: conv.nomePendente,
-      local: conv.local,
-      categorias: conv.categorias ?? [],
-      arquivos: conv.arquivos,
-      invalidCount: conv.invalidCount,
-      slots: conv.slots,
-      offTopicCount: conv.offTopicCount ?? 0,
-      custom: conv.custom ?? null,
+      history: conv.history ?? [],
     };
-  }
-
-  private applyPatch(
-    conv: ChatbotConversation,
-    patch: Partial<FlowState>,
-  ): void {
-    Object.assign(conv, patch);
   }
 
   private async send(
     conv: ChatbotConversation,
-    texts: string[],
+    replies: Reply[],
     flowId?: string,
   ): Promise<void> {
-    if (!texts.length) return;
+    if (!replies.length) return;
     const bubbles = await this.humanizer.compose(
-      conv,
-      texts,
-      flowId ?? (conv.step === 'CUSTOM' ? conv.custom?.flowId : undefined),
+      this.composeCtx(conv),
+      replies,
+      flowId ?? conv.flow?.flowId,
     );
     await this.messenger.sendTexts(conv.ticketId, bubbles);
     this.pushHistory(conv, { role: 'bot', text: clip(bubbles.join(' ')) });
@@ -402,6 +402,29 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   private pushHistory(conv: ChatbotConversation, turn: HistoryTurn): void {
     conv.history = [...(conv.history ?? []), turn].slice(-8);
+  }
+
+  /** Começa (ou recomeça) pelo fluxo de início. */
+  private async restart(
+    conv: ChatbotConversation,
+    prefix: Reply[] = [],
+  ): Promise<void> {
+    const entry = entryFlow(runtimeContent.published);
+    conv.flow = null;
+    conv.trilha = null;
+    conv.invalidCount = 0;
+    conv.arquivos = 0;
+    if (!entry) {
+      this.logger.warn('Nenhum fluxo de início publicado: o bot não responde.');
+      await this.repo.save(conv);
+      return;
+    }
+    const r = startFlow(
+      runtimeContent.published,
+      entry.id,
+      conv.nome ? { nome: conv.nome } : {},
+    );
+    await this.apply(conv, { ...r, replies: [...prefix, ...r.replies] });
   }
 
   async process(batch: Batch): Promise<void> {
@@ -431,9 +454,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       // O Redator usa a 1ª mensagem do cliente ("Oi", "Boa tarde"...) para responder com naturalidade.
       if (msg.body.trim())
         this.pushHistory(conv, { role: 'cliente', text: clip(msg.body) });
-      await this.send(conv, [MESSAGES.menu_inicial]);
-      await this.repo.save(conv);
-      return;
+      return this.restart(conv);
     }
 
     conv.numero = msg.numero ?? conv.numero;
@@ -447,36 +468,40 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     // 2) Novo ticket para um cliente conhecido
     if (conv.ticketId !== msg.ticketId) {
       conv.ticketId = msg.ticketId;
-      if (conv.finalizouTriagem) {
-        this.applyPatch(conv, {
-          ...INITIAL_FLOW_STATE,
-          categorias: [],
-          step: 'RECONHECIMENTO',
-        });
-        conv.emAtendimento = false;
-        await this.repo.save(conv);
-        await this.send(conv, [MESSAGES.reconhecimento]);
-      } else {
-        this.applyPatch(conv, { ...INITIAL_FLOW_STATE, categorias: [] });
-        conv.emAtendimento = false;
-        await this.repo.save(conv);
-        await this.send(conv, [MESSAGES.menu_inicial]);
+      conv.emAtendimento = false;
+      conv.step = 'BOT';
+      const rec = conv.finalizouTriagem
+        ? recognitionFlow(runtimeContent.published)
+        : undefined;
+      if (rec) {
+        conv.flow = null;
+        return this.apply(
+          conv,
+          startFlow(
+            runtimeContent.published,
+            rec.id,
+            conv.nome ? { nome: conv.nome } : {},
+          ),
+        );
       }
-      await this.repo.save(conv);
-      return;
+      return this.restart(conv);
     }
 
     // 3) Atendimento humano em andamento: bot em silêncio, salvo ociosidade longa
     if (conv.step === 'HUMANO') {
       const idleMs = now.getTime() - new Date(previousActivity).getTime();
       if (idleMs > this.appConfig.chatbot.humanIdleMinutes * 60_000) {
-        const d = restartDecision();
-        this.applyPatch(conv, d.patch);
+        conv.step = 'BOT';
         conv.emAtendimento = false;
         conv.finalizouTriagem = false;
         conv.driveFolderId = null;
-        await this.repo.save(conv);
-        await this.send(conv, [MESSAGES.reinicio_por_pausa, ...d.replies]);
+        conv.nome = null;
+        return this.restart(conv, [
+          {
+            texto: sistema().reinicio_por_pausa,
+            sistema: 'reinicio_por_pausa',
+          },
+        ]);
       }
       await this.repo.save(conv);
       return;
@@ -486,7 +511,12 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     const text = batch.texts.join(' ').trim();
     if (batch.audio && !text && !batch.files.length) {
       await this.repo.save(conv);
-      await this.send(conv, [MESSAGES.audio_nao_suportado]);
+      await this.send(conv, [
+        {
+          texto: sistema().audio_nao_suportado,
+          sistema: 'audio_nao_suportado',
+        },
+      ]);
       await this.repo.save(conv);
       return;
     }
@@ -494,82 +524,60 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     // 5) Arquivos recebidos vão para a pasta do cliente
     if (batch.files.length) await this.storeFiles(conv, batch.files);
 
-    // 6) Interpretação → regras
-    const state = this.flowOf(conv);
-    const hasFile = batch.files.length > 0;
-
-    // 6a) Dentro de um fluxo personalizado: o motor do fluxo decide (sem IA)
-    if (state.step === 'CUSTOM') {
+    // 6) Sem fluxo (conversa antiga, fluxo despublicado...): começa do início
+    if (!conv.flow || !currentNode(runtimeContent.published, conv.flow)) {
       if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
-      const flow = state.custom ? fluxoPorId(state.custom.flowId) : undefined;
-      if (!flow || !flow.ativo || !state.custom) {
-        // O fluxo foi desativado/removido no meio da conversa: volta ao menu.
-        return this.apply(conv, restartDecision());
-      }
-      const r = stepFlow(
-        flow,
-        state.custom,
-        { text, hasFile },
-        {
-          maxInvalid: this.appConfig.chatbot.maxInvalid,
-        },
-      );
-      // Pergunta do cliente que não era a resposta esperada: a IA responde com a base DESTE fluxo
-      // (jeito de falar do fluxo, revisada) e a conversa retoma de onde estava.
-      if (
-        r.invalido &&
-        text &&
-        flow.kb?.length &&
-        this.agents.available &&
-        this.consumeAiCall(conv)
-      ) {
-        const answer = await this.agents.answerFaq(
-          text,
-          flow.kb,
-          flow.guidance as Guidance | undefined,
-        );
-        const retomar = promptOf(flow, state.custom);
-        if (answer && retomar)
-          return this.apply(conv, {
-            patch: { step: 'CUSTOM', custom: state.custom, invalidCount: 0 },
-            replies: [answer, retomar],
-            effects: [],
-            flowId: flow.id,
-          });
-      }
-      return this.apply(conv, this.customDecision(conv, r, flow.id));
+      return this.restart(conv);
     }
 
-    let input: FlowInput | null = parseInput(state, text, hasFile);
-    if (input === null) input = await this.interpretWithAi(conv, state, text);
-
+    // 7) Interpretação → motor
+    const hasFile = batch.files.length > 0;
+    let input: FlowInput | null = parseText(
+      runtimeContent.published,
+      conv.flow,
+      text,
+      hasFile,
+    );
+    if (input === null) input = await this.interpretWithAi(conv, text);
     if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
 
-    // 6b) Opção do menu que abre um fluxo personalizado
-    if (state.step === 'MENU' && input.kind === 'option') {
-      const flow = fluxoDaOpcao(input.value);
-      if (flow)
-        return this.apply(
-          conv,
-          this.customDecision(conv, startFlow(flow, conv.nome), flow.id),
-        );
-    }
+    if (input.kind === 'fora_escopo')
+      return this.offTopic(conv, input.severidade);
 
-    const decision = decide(state, input, {
+    const r = stepFlow(runtimeContent.published, conv.flow, input, {
       maxInvalid: this.appConfig.chatbot.maxInvalid,
-      scheduling: this.appConfig.chatbot.ponttaEnabled,
-      maxOffTopic: this.appConfig.chatbot.maxOffTopic,
     });
-    await this.apply(conv, decision);
+    await this.apply(conv, r);
   }
 
-  /** Converte o resultado do motor de fluxo personalizado numa Decision do motor principal. */
-  private customDecision(
+  /** Mensagem fora do assunto: avisa, soma advertências e reapresenta a etapa. */
+  private async offTopic(
     conv: ChatbotConversation,
-    r: CustomResult,
-    flowId: string,
-  ): Decision {
-    return customToDecision(r, flowId, conv.nome);
+    severidade: 'leve' | 'grave',
+  ): Promise<void> {
+    const max = this.appConfig.chatbot.maxOffTopic;
+    const antes = conv.offTopicCount ?? 0;
+    conv.offTopicCount = antes + (severidade === 'grave' ? 2 : 1);
+    await this.repo.save(conv);
+    if (antes >= max) return; // já passou do limite: não gasta resposta
+    const replies: Reply[] =
+      conv.offTopicCount >= max
+        ? [
+            {
+              texto: sistema().fora_escopo_limite,
+              sistema: 'fora_escopo_limite',
+            },
+          ]
+        : [
+            { texto: sistema().fora_escopo, sistema: 'fora_escopo' },
+            ...(conv.flow
+              ? [promptOf(runtimeContent.published, conv.flow)].filter(
+                  (x): x is Reply => !!x,
+                )
+              : []),
+          ];
+    await this.send(conv, replies);
+    await this.repo.save(conv);
   }
 
   private remember(conv: ChatbotConversation, msg: Inbound): void {
@@ -579,154 +587,110 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** Aplica o novo estado, envia os textos e executa os efeitos externos. */
+  /** Aplica o resultado do motor: estado, textos, ferramentas (em cadeia) e encaminhamento. */
   private async apply(
     conv: ChatbotConversation,
-    decision: Decision,
+    result: FlowResult,
   ): Promise<void> {
-    this.applyPatch(conv, decision.patch);
-    await this.repo.save(conv); // persiste ANTES de enviar: um reenvio do webhook não repete a resposta
-    await this.send(conv, decision.replies, decision.flowId);
-    for (const effect of decision.effects) await this.runEffect(conv, effect);
-    await this.repo.save(conv);
-  }
+    let r = result;
+    for (let guard = 0; guard < MAX_TOOL_CHAIN; guard++) {
+      if (r.nome) conv.nome = r.nome;
+      if (r.state?.vars['trilha'])
+        conv.trilha = r.state.vars['trilha'].slice(0, 16);
+      conv.flow = r.state;
+      conv.invalidCount = r.state?.invalidos ?? 0;
+      conv.arquivos = r.state?.arquivos ?? conv.arquivos;
+      await this.repo.save(conv); // persiste ANTES de enviar: um reenvio do webhook não repete a resposta
+      await this.send(conv, r.replies, r.flowId);
 
-  private async runEffect(
-    conv: ChatbotConversation,
-    effect: Effect,
-  ): Promise<void> {
-    switch (effect.type) {
-      case 'criar_pasta':
-        try {
-          if (conv.nome) {
-            const pasta = await (effect.somenteSeExistir
-              ? this.drive.ensureClientFolder(
-                  conv.ticketId,
-                  conv.nome,
-                  new Date(),
-                  false,
-                )
-              : this.drive.ensureClientFolder(conv.ticketId, conv.nome));
-            if (pasta || !effect.somenteSeExistir) conv.driveFolderId = pasta;
-          }
-        } catch (error) {
-          this.logger.error(
-            `Pasta do cliente não criada (ticket ${conv.ticketId}): ${(error as Error).message}`,
-          );
-        }
-        return;
-
-      case 'salvar_preferencias':
-        try {
-          if (conv.driveFolderId && conv.nome)
-            await this.drive.savePreferences(
-              conv.driveFolderId,
-              conv.nome,
-              conv.categorias,
-            );
-        } catch (error) {
-          this.logger.error(
-            `Preferências não salvas (ticket ${conv.ticketId}): ${(error as Error).message}`,
-          );
-        }
-        return;
-
-      case 'oferecer_horarios':
-        return this.offerSlots(conv);
-
-      case 'agendar':
-        return this.bookSlot(conv, effect.slotIndex);
-
-      case 'salvar_respostas':
-        try {
-          if (conv.driveFolderId && conv.nome)
-            await this.drive.saveAnswers(
-              conv.driveFolderId,
-              conv.nome,
-              effect.titulo,
-              effect.itens,
-            );
-        } catch (error) {
-          this.logger.error(
-            `Respostas não salvas (ticket ${conv.ticketId}): ${(error as Error).message}`,
-          );
-        }
-        return;
-
-      case 'handoff':
-        return this.finishHandoff(
-          conv,
-          effect.mensagem,
-          effect.reutilizarAtendente,
-          effect.texto,
-          effect.flowId,
-        );
-    }
-  }
-
-  private async offerSlots(conv: ChatbotConversation): Promise<void> {
-    try {
-      const slots = await this.scheduling.offer();
-      if (!slots.length)
-        return this.finishHandoff(
-          conv,
-          conv.nome ? 'redirecionando_com_nome' : 'redirecionando',
-        );
-      conv.slots = slots;
-      conv.step = 'HORARIO';
-      await this.repo.save(conv);
-      await this.send(conv, [renderSlotList(MESSAGES.escolher_horario, slots)]);
-    } catch (error) {
-      this.logger.error(`Agenda indisponível: ${(error as Error).message}`);
-      return this.finishHandoff(
-        conv,
-        conv.nome ? 'redirecionando_com_nome' : 'redirecionando',
+      const tool = r.effects.find(
+        (e): e is Extract<Effect, { type: 'ferramenta' }> =>
+          e.type === 'ferramenta',
       );
-    }
-  }
-
-  private async bookSlot(
-    conv: ChatbotConversation,
-    index: number,
-  ): Promise<void> {
-    const slot = conv.slots?.[index];
-    if (!slot) return this.offerSlots(conv);
-    try {
-      const note = `Precisa entrar em contato com ${conv.nome ?? 'o cliente'} do número: ${conv.numero ?? 'não informado'}, para saber a localização da medição e substituir esta mensagem.`;
-      const ok = await this.scheduling.book(slot, conv.contactId, note);
-      if (!ok) {
-        await this.send(conv, [MESSAGES.horario_indisponivel]);
-        return this.offerSlots(conv);
+      const hand = r.effects.find(
+        (e): e is Extract<Effect, { type: 'handoff' }> => e.type === 'handoff',
+      );
+      if (hand) {
+        await this.finishHandoff(conv, {
+          reutilizar: hand.reutilizar,
+          jaAvisou: hand.jaAvisou,
+          flowId: r.flowId,
+        });
+        return;
       }
-      conv.agendamentoStart = new Date(slot.startUtc);
-      await this.finishHandoff(conv, 'agendado');
-    } catch {
-      return this.finishHandoff(
-        conv,
-        conv.nome ? 'redirecionando_com_nome' : 'redirecionando',
+      if (!r.state) {
+        // saiu do fluxo sem encaminhar: volta ao início
+        if (r.saiu === 'menu') return this.restart(conv);
+        await this.repo.save(conv);
+        return;
+      }
+      if (!tool) {
+        await this.repo.save(conv);
+        return;
+      }
+      const toolResult = await this.runTool(conv, r.state, tool);
+      r = resumeTool(runtimeContent.published, conv.flow!, toolResult);
+    }
+    this.logger.warn(
+      `Cadeia de ferramentas longa demais (ticket ${conv.ticketId}); encaminhando.`,
+    );
+    await this.finishHandoff(conv, {});
+  }
+
+  private async runTool(
+    conv: ChatbotConversation,
+    state: FlowState,
+    eff: Extract<Effect, { type: 'ferramenta' }>,
+  ): Promise<ToolResult> {
+    const tool = this.tools.get(eff.ferramenta);
+    if (!tool) return { ok: false, motivo: 'ferramenta_desconhecida' };
+    if (!tool.disponivel()) return { ok: false, motivo: 'indisponivel' };
+    const flow = fluxoPorId(state.flowId);
+    const rotulos: Record<string, string> = {};
+    for (const n of flow?.nos ?? [])
+      if ('variavel' in n && n.variavel) rotulos[n.variavel] = n.titulo;
+    const ctx: ToolContext = {
+      conv: {
+        contactId: conv.contactId,
+        ticketId: conv.ticketId,
+        nome: conv.nome,
+        numero: conv.numero,
+        driveFolderId: conv.driveFolderId,
+      },
+      state,
+      params: eff.params,
+      flowNome: flow?.nome ?? '',
+      rotulos,
+    };
+    try {
+      const result = await tool.executar(ctx);
+      if (result.ok && result.conv) {
+        if (result.conv.driveFolderId !== undefined)
+          conv.driveFolderId = result.conv.driveFolderId;
+        if (result.conv.agendamentoStart)
+          conv.agendamentoStart = new Date(result.conv.agendamentoStart);
+      }
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Ferramenta ${eff.ferramenta} falhou (ticket ${conv.ticketId}): ${(error as Error).message}`,
       );
+      return { ok: false, motivo: 'erro' };
     }
   }
 
   private async finishHandoff(
     conv: ChatbotConversation,
-    kind: Parameters<ChatbotHandoffService['execute']>[1],
-    reutilizar = false,
-    texto?: string,
-    flowId?: string,
+    input: { reutilizar?: boolean; jaAvisou?: boolean; flowId?: string },
   ): Promise<void> {
-    const result =
-      texto !== undefined || flowId
-        ? await this.handoff.execute(conv, kind, reutilizar, texto, flowId)
-        : await this.handoff.execute(conv, kind, reutilizar);
+    const result = await this.handoff.execute(conv, input);
     conv.step = 'HUMANO';
     conv.emAtendimento = true;
     conv.finalizouTriagem = true;
     conv.atendenteId = result.atendenteId ?? conv.atendenteId;
     conv.filaId = result.filaId ?? conv.filaId;
     conv.handoffError = result.error;
-    conv.slots = null;
-    conv.custom = null;
+    conv.flow = null;
     conv.history = []; // minimiza dados guardados depois da triagem
     await this.repo.save(conv);
   }
@@ -768,9 +732,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   /** Conta uma chamada de IA no teto diário do cliente. false = estourou o teto. */
   private consumeAiCall(conv: ChatbotConversation): boolean {
-    const today = new Date(Date.now() - 4 * 3600_000)
-      .toISOString()
-      .slice(0, 10);
+    const today = manausDay();
     if (conv.aiCallsDate !== today) {
       conv.aiCallsDate = today;
       conv.aiCallsDay = 0;
@@ -782,34 +744,46 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   private async interpretWithAi(
     conv: ChatbotConversation,
-    state: FlowState,
     text: string,
   ): Promise<FlowInput> {
-    if (!text) return { kind: 'invalid' };
-
+    if (!text) return { kind: 'invalido' };
     // Quem já estourou as advertências de fora de escopo não gasta mais IA: texto livre é ignorado.
-    if ((conv.offTopicCount ?? 0) >= this.appConfig.chatbot.maxOffTopic) {
+    if ((conv.offTopicCount ?? 0) >= this.appConfig.chatbot.maxOffTopic)
       return { kind: 'fora_escopo', severidade: 'leve' };
-    }
+    if (!this.agents.available) return { kind: 'invalido' };
+    if (!this.consumeAiCall(conv)) return { kind: 'invalido' };
 
-    // Teto diário de mensagens interpretadas por IA, por cliente (controle de custo / abuso)
-    const today = new Date(Date.now() - 4 * 3600_000)
-      .toISOString()
-      .slice(0, 10);
-    if (conv.aiCallsDate !== today) {
-      conv.aiCallsDate = today;
-      conv.aiCallsDay = 0;
-    }
-    if (conv.aiCallsDay >= this.appConfig.chatbot.aiDailyLimit) {
-      return { kind: 'invalid' };
-    }
-    if (this.agents.available) conv.aiCallsDay++;
+    const p = runtimeContent.published;
+    const state = conv.flow!;
+    const node: FlowNode | null = currentNode(p, state) ?? null;
+    const flow = fluxoPorId(state.flowId);
+    const kb = flow?.kb?.length ? flow.kb : KNOWLEDGE_BASE;
+    return this.agents.resolve(
+      {
+        node,
+        state,
+        validOptions: validOptions(p, state),
+        rotulos: this.rotulosDe(node, state),
+        message: text,
+        history: conv.history ?? [],
+      },
+      kb,
+      guidanceOf(flow),
+    );
+  }
 
-    return this.agents.resolve({
-      state,
-      message: text,
-      history: conv.history ?? [],
-    });
+  private rotulosDe(node: FlowNode | null, state: FlowState): string[] {
+    if (!node) return [];
+    if (node.tipo === 'opcoes' || node.tipo === 'confirmacao')
+      return node.opcoes.map((o) => o.rotulo);
+    if (node.tipo === 'multipla')
+      return [
+        ...node.itens.map((i) => i.rotulo),
+        ...(node.nenhum ? [node.nenhum] : []),
+      ];
+    if (node.tipo === 'ferramenta')
+      return (state.dinamicas ?? []).map((o) => o.rotulo);
+    return [];
   }
 
   // ───────────────────────── manutenção ─────────────────────────

@@ -4,8 +4,11 @@ import { Repository } from 'typeorm';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { PonttaService } from '../../pontta/pontta.service';
 import { ChatbotBookedSlot } from '../entities/chatbot-booked-slot.entity';
-import { computeSlots, MANAUS_OFFSET_MS } from '../domain/scheduling';
-import { SlotOption } from '../domain/chatbot.types';
+import {
+  computeSlots,
+  MANAUS_OFFSET_MS,
+  SlotOption,
+} from '../domain/scheduling';
 
 const HORIZON_DAYS = 21;
 

@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { PonttaService } from '../../pontta/pontta.service';
-import { MESSAGES } from '../domain/chatbot.messages';
-import { fill } from '../domain/chatbot.flow';
-import { HandoffMessage } from '../domain/chatbot.types';
+import { sistema } from '../domain/content-runtime';
+import { render } from '../engine/text';
+import type { Reply } from '../engine/flow.types';
 import { ChatbotConversation } from '../entities/chatbot-conversation.entity';
 import { GosacMessengerService } from './gosac-messenger.service';
 import { ChatbotRotationService } from './chatbot-rotation.service';
@@ -13,6 +13,15 @@ export interface HandoffResult {
   atendenteId: number | null;
   filaId: number | null;
   error: string | null;
+}
+
+export interface HandoffInput {
+  /** Devolver ao mesmo atendente que já atendeu este cliente (quando houver). */
+  reutilizar?: boolean;
+  /** O fluxo já enviou a própria mensagem de encaminhamento: não mandar a padrão. */
+  jaAvisou?: boolean;
+  /** Fluxo de onde o cliente vem (jeito de falar). */
+  flowId?: string;
 }
 
 /** Entrega o cliente a um atendente humano: rodízio → ticket no GOSAC → (opcional) negócio no Pontta. */
@@ -28,25 +37,20 @@ export class ChatbotHandoffService {
     private readonly humanizer: ChatbotHumanizerService,
   ) {}
 
-  private textFor(kind: HandoffMessage, nome: string | null): string {
-    switch (kind) {
-      case 'agendado':
-        return MESSAGES.horario_agendado;
-      case 'redirecionando_com_nome':
-        return nome
-          ? fill(MESSAGES.redirecionando_projetistas_com_nome, { nome })
-          : MESSAGES.redirecionando_projetistas;
-      default:
-        return MESSAGES.redirecionando_projetistas;
-    }
+  /** Mensagem padrão de encaminhamento (com o nome, quando conhecido). */
+  defaultReply(nome: string | null): Reply {
+    const s = sistema();
+    return nome
+      ? {
+          texto: render(s.redirecionando_com_nome, { nome }),
+          sistema: 'redirecionando_com_nome',
+        }
+      : { texto: s.redirecionando, sistema: 'redirecionando' };
   }
 
   async execute(
     conv: ChatbotConversation,
-    kind: HandoffMessage,
-    reutilizar = false,
-    texto?: string,
-    flowId?: string,
+    input: HandoffInput = {},
   ): Promise<HandoffResult> {
     const cfg = this.appConfig.chatbot;
     const errors: string[] = [];
@@ -56,7 +60,7 @@ export class ChatbotHandoffService {
     let queueId: number | null = null;
     let ponttaId: string | null = null;
 
-    if (reutilizar && conv.atendenteId) {
+    if (input.reutilizar && conv.atendenteId) {
       userId = conv.atendenteId;
       queueId = conv.filaId;
     } else {
@@ -77,16 +81,21 @@ export class ChatbotHandoffService {
     }
 
     // 2) Mensagem ao cliente (falha de envio não impede a entrega do ticket)
-    try {
-      // Passa pelo Redator como as demais mensagens (cai no texto original se a IA falhar)
-      const bubbles = await this.humanizer.compose(
-        conv,
-        [texto ?? this.textFor(kind, conv.nome)],
-        flowId,
-      );
-      await this.messenger.sendTexts(conv.ticketId, bubbles);
-    } catch (error) {
-      errors.push(`mensagem: ${(error as Error).message}`);
+    if (!input.jaAvisou) {
+      try {
+        const bubbles = await this.humanizer.compose(
+          {
+            contactId: conv.contactId,
+            nome: conv.nome,
+            history: conv.history ?? [],
+          },
+          [this.defaultReply(conv.nome)],
+          input.flowId,
+        );
+        await this.messenger.sendTexts(conv.ticketId, bubbles);
+      } catch (error) {
+        errors.push(`mensagem: ${(error as Error).message}`);
+      }
     }
 
     // 3) Ticket vai para a fila humana ("pending")
@@ -101,7 +110,12 @@ export class ChatbotHandoffService {
     }
 
     // 4) Pontta (desligado por padrão): só roda com CHATBOT_PONTTA_ENABLED=true
-    if (cfg.ponttaEnabled && ponttaId && cfg.dealWorkflowId && !reutilizar) {
+    if (
+      cfg.ponttaEnabled &&
+      ponttaId &&
+      cfg.dealWorkflowId &&
+      !input.reutilizar
+    ) {
       try {
         const { email, password } = this.appConfig.ponttaCredentials;
         const token = await this.pontta.authenticate(email, password);

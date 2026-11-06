@@ -1,4 +1,10 @@
-import { SlotOption } from './chatbot.types';
+export interface SlotOption {
+  /** Início em UTC (ISO). */
+  startUtc: string;
+  endUtc: string;
+  /** Texto exibido ao cliente, ex.: "04/07/2025 07:00 - 09:00" (horário de Manaus). */
+  label: string;
+}
 
 /** Manaus não tem horário de verão: UTC-4 fixo. */
 export const MANAUS_OFFSET_MS = 4 * 60 * 60 * 1000;

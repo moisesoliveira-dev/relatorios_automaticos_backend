@@ -1,8 +1,14 @@
-import { FlowState } from '../domain/chatbot.types';
+import type { FlowNode, FlowState } from '../engine/flow.types';
 import { HistoryTurn } from '../entities/chatbot-conversation.entity';
 
 export interface AgentContext {
-  state: FlowState;
+  /** Etapa em que o cliente está (null = sem fluxo). */
+  node: FlowNode | null;
+  state: FlowState | null;
+  /** Opções numéricas válidas agora (1..n). */
+  validOptions: number[];
+  /** Rótulos das opções/itens apresentados ao cliente, na ordem. */
+  rotulos: string[];
   message: string;
   history: HistoryTurn[];
 }

@@ -45,9 +45,7 @@ export class ChatbotInboxService {
     return rows.map((r) => {
       const msg = r.payload as unknown as Inbound;
       if (msg.ticketCreatedAt)
-        msg.ticketCreatedAt = new Date(
-          msg.ticketCreatedAt as unknown as string,
-        );
+        msg.ticketCreatedAt = new Date(msg.ticketCreatedAt);
       return { id: r.id, receivedAt: new Date(r.receivedAt), msg };
     });
   }

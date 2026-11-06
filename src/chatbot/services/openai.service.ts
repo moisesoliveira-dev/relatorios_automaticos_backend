@@ -129,7 +129,7 @@ export class OpenAiService {
     } catch (error) {
       this.recordFailure();
       this.logger.warn(
-        `agent=${call.agent} falhou (${(error as any)?.status ?? 'rede'}): ${(error as Error).message?.slice(0, 120)}`,
+        `agent=${call.agent} falhou (${error?.status ?? 'rede'}): ${(error as Error).message?.slice(0, 120)}`,
       );
       return null;
     } finally {
