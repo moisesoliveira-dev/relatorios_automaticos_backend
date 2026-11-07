@@ -4,9 +4,10 @@ import { Rotation } from './entities/rotation.entity';
 import { RotationService } from './rotation.service';
 import { RotationController } from './rotation.controller';
 import { GosacModule } from '../gosac/gosac.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Rotation], 'rotation'), GosacModule],
+    imports: [TypeOrmModule.forFeature([Rotation], 'rotation'), GosacModule, SettingsModule],
     controllers: [RotationController],
     providers: [RotationService],
 })
