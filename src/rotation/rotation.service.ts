@@ -3,6 +3,8 @@ import {
     NotFoundException,
     ConflictException,
     BadRequestException,
+    Logger,
+    OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,12 +13,31 @@ import { CreateRotationDto, UpdateRotationDto } from './dto/rotation.dto';
 import { GosacService } from '../gosac/gosac.service';
 
 @Injectable()
-export class RotationService {
+export class RotationService implements OnModuleInit {
+    private readonly logger = new Logger(RotationService.name);
+
     constructor(
         @InjectRepository(Rotation, 'rotation')
         private readonly rotationRepository: Repository<Rotation>,
         private readonly gosacService: GosacService,
     ) { }
+
+    /** Banco novo (ou limpo): cria a tabela do rodízio se ainda não existir. */
+    async onModuleInit(): Promise<void> {
+        try {
+            await this.rotationRepository.query(
+                `CREATE TABLE IF NOT EXISTS tb_rotation (
+                    id text PRIMARY KEY,
+                    name text,
+                    turn boolean DEFAULT false,
+                    identificacao integer,
+                    queueid integer
+                )`,
+            );
+        } catch (error) {
+            this.logger.warn(`Não foi possível garantir a tabela tb_rotation: ${(error as Error).message}`);
+        }
+    }
 
     findAll(): Promise<Rotation[]> {
         return this.rotationRepository.find({

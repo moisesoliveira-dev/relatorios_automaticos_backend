@@ -83,7 +83,7 @@ function buildRotationDatabaseConfig(appConfig: AppConfigService): TypeOrmModule
     synchronize: false,
     logging: false,
     ...parsed,
-    ssl: { rejectUnauthorized: appConfig.dbSslRejectUnauthorized },
+    ssl: appConfig.dbSsl ? { rejectUnauthorized: appConfig.dbSslRejectUnauthorized } : false,
   };
 }
 
