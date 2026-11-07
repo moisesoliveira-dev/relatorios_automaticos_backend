@@ -1,28 +1,29 @@
 /**
- * Modo teste: o chatbot só atende os números da lista. Os números são do Brasil; comparamos por
- * DDD + os 8 últimos dígitos, então "92 99123-4567", "5592991234567" e "+55 92 9123-4567" são o mesmo.
+ * Modo teste: o chatbot só atende os números da lista. O número pode chegar do webhook em qualquer
+ * formato ("5592991234567", "+55 (92) 99123-4567", "5592991234567@c.us"...): tiramos tudo que não
+ * é dígito e comparamos só os 8 últimos, que identificam a linha com ou sem 55, DDD e 9º dígito.
  */
 
-/** Dígitos do número sem o 55 do país (quando vier). Null se não parecer um telefone brasileiro (DDD + 8 ou 9 dígitos). */
-export function nationalDigits(raw: unknown): string | null {
-  let d = String(raw ?? '').replace(/\D/g, '');
-  if (d.length >= 12 && d.startsWith('55')) d = d.slice(2);
-  return d.length === 10 || d.length === 11 ? d : null;
+/** Dígitos do que veio, sem pontuação, espaços, "@c.us" ou outros textos. */
+export function onlyDigits(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/@.*$/, '')
+    .replace(/\D/g, '');
 }
 
-/** Chave de comparação: DDD + 8 últimos dígitos (ignora o 9º dígito). */
+/** Chave de comparação: os 8 últimos dígitos. Null se tiver menos de 8. */
 export function numberKey(raw: unknown): string | null {
-  const d = nationalDigits(raw);
-  return d ? d.slice(0, 2) + d.slice(-8) : null;
+  const d = onlyDigits(raw);
+  return d.length >= 8 ? d.slice(-8) : null;
 }
 
-/** Forma guardada: 55 + DDD + número. */
+/** Forma guardada na lista: só os dígitos (mínimo 8). */
 export function canonicalNumber(raw: unknown): string | null {
-  const d = nationalDigits(raw);
-  return d ? `55${d}` : null;
+  const d = onlyDigits(raw);
+  return d.length >= 8 && d.length <= 15 ? d : null;
 }
 
-/** Lista guardada ("5592991234567,5592988887777") → números. */
+/** Lista guardada ("5592991234567,92988887777") → números. */
 export function parseNumberList(raw: unknown): string[] {
   return String(raw ?? '')
     .split(/[\s,;]+/)

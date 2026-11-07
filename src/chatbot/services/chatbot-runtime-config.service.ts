@@ -7,7 +7,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { SettingsService } from '../../settings/settings.service';
-import { canonicalNumber, parseNumberList } from '../domain/test-mode';
+import { canonicalNumber, numberKey, parseNumberList } from '../domain/test-mode';
 
 export type FieldType = 'boolean' | 'number' | 'text' | 'secret' | 'list';
 export type FieldGroup =
@@ -56,9 +56,9 @@ export const CONFIG_FIELDS: ConfigField[] = [
     label: 'Números do modo teste',
     group: 'geral',
     type: 'list',
-    placeholder: '(92) 99123-4567',
+    placeholder: '92 99123-4567',
     description:
-      'Telefones com DDD que o chatbot atende no modo teste. Pode ser com ou sem 55 e com ou sem o 9.',
+      'Telefones que o chatbot atende no modo teste. Vale qualquer formato: só os 8 últimos dígitos são comparados.',
   },
   {
     key: 'CHATBOT_AI_ENABLED',
@@ -417,9 +417,10 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
           const n = canonicalNumber(item);
           if (!n)
             throw new BadRequestException(
-              `"${item}" não parece um telefone com DDD (ex.: 92 99123-4567).`,
+              `"${item}" não parece um telefone (precisa de pelo menos 8 números).`,
             );
-          if (!numeros.includes(n)) numeros.push(n);
+          if (!numeros.some((x) => numberKey(x) === numberKey(n)))
+            numeros.push(n);
         }
         if (numeros.length > 50)
           throw new BadRequestException('No máximo 50 números no modo teste.');
