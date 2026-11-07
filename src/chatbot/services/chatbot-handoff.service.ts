@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
-import { PonttaService } from '../../pontta/pontta.service';
 import { sistema } from '../domain/content-runtime';
 import { render } from '../engine/text';
 import type { Reply } from '../engine/flow.types';
@@ -8,10 +7,20 @@ import { ChatbotConversation } from '../entities/chatbot-conversation.entity';
 import { GosacMessengerService } from './gosac-messenger.service';
 import { ChatbotRotationService } from './chatbot-rotation.service';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
+import {
+  CRM_FLUXOS,
+  contatoGosac,
+  CrmFluxo,
+  CrmFunilService,
+  fluxoDaTrilha,
+  linhasDaTriagem,
+} from './crm-funil.service';
 
 export interface HandoffResult {
   atendenteId: number | null;
   filaId: number | null;
+  /** Lead no funil comercial (CMSYS), quando foi registrado. */
+  crmLeadId: string | null;
   error: string | null;
 }
 
@@ -22,9 +31,13 @@ export interface HandoffInput {
   jaAvisou?: boolean;
   /** Fluxo de onde o cliente vem (jeito de falar). */
   flowId?: string;
+  /** Respostas coletadas na triagem (viram o resumo no funil comercial). */
+  vars?: Record<string, string>;
+  /** Nome legível de cada variável (título da etapa que a perguntou). */
+  rotulos?: Record<string, string>;
 }
 
-/** Entrega o cliente a um atendente humano: rodízio → ticket no GOSAC → (opcional) negócio no Pontta. */
+/** Entrega o cliente a um atendente humano: rodízio → ticket no GOSAC → lead no funil comercial (CMSYS). */
 @Injectable()
 export class ChatbotHandoffService {
   private readonly logger = new Logger(ChatbotHandoffService.name);
@@ -33,7 +46,7 @@ export class ChatbotHandoffService {
     private readonly appConfig: AppConfigService,
     private readonly messenger: GosacMessengerService,
     private readonly rotation: ChatbotRotationService,
-    private readonly pontta: PonttaService,
+    private readonly crm: CrmFunilService,
     private readonly humanizer: ChatbotHumanizerService,
   ) {}
 
@@ -58,7 +71,7 @@ export class ChatbotHandoffService {
     // 1) Quem atende
     let userId: number | null = null;
     let queueId: number | null = null;
-    let ponttaId: string | null = null;
+    let atendenteNome: string | null = null;
 
     if (input.reutilizar && conv.atendenteId) {
       userId = conv.atendenteId;
@@ -68,7 +81,7 @@ export class ChatbotHandoffService {
       if (pick) {
         userId = pick.gosacUserId;
         queueId = pick.gosacQueueId;
-        ponttaId = pick.ponttaId;
+        atendenteNome = pick.name;
       } else if (cfg.fallbackGosacUserId) {
         userId = cfg.fallbackGosacUserId;
         queueId = cfg.fallbackGosacQueueId ?? null;
@@ -109,29 +122,18 @@ export class ChatbotHandoffService {
       errors.push(`ticket: ${(error as Error).message}`);
     }
 
-    // 4) Pontta (desligado por padrão): só roda com CHATBOT_PONTTA_ENABLED=true
-    if (
-      cfg.ponttaEnabled &&
-      ponttaId &&
-      cfg.dealWorkflowId &&
-      !input.reutilizar
-    ) {
+    // 4) Funil comercial do CMSYS (substitui o negócio do Pontta): falha aqui nunca impede a entrega
+    let crmLeadId: string | null = conv.crmLeadId ?? null;
+    if (this.crm.enabled) {
       try {
-        const { email, password } = this.appConfig.ponttaCredentials;
-        const token = await this.pontta.authenticate(email, password);
-        await this.pontta.createDeal(token, {
-          title:
-            conv.nome ||
-            conv.contactName ||
-            conv.numero ||
-            `Ticket ${conv.ticketId}`,
-          responsibleId: ponttaId,
-          workflowId: cfg.dealWorkflowId,
-          phone: conv.numero,
-          email: cfg.dealFallbackEmail ?? null,
-        });
+        crmLeadId = await this.registrarNoFunil(
+          conv,
+          input,
+          input.reutilizar ? null : atendenteNome,
+          errors,
+        );
       } catch (error) {
-        errors.push(`pontta: ${(error as Error).message}`);
+        errors.push(`funil: ${(error as Error).message}`);
       }
     }
 
@@ -142,7 +144,56 @@ export class ChatbotHandoffService {
     return {
       atendenteId: userId,
       filaId: queueId,
+      crmLeadId,
       error: errors.length ? errors.join(' | ').slice(0, 500) : null,
     };
+  }
+
+  /**
+   * Cria (ou atualiza, sem duplicar) o lead do cliente, define o consultor pelo atendente do rodízio,
+   * grava o que ele respondeu e anota o resumo da triagem no histórico.
+   */
+  private async registrarNoFunil(
+    conv: ChatbotConversation,
+    input: HandoffInput,
+    atendente: string | null,
+    errors: string[],
+  ): Promise<string> {
+    const vars = input.vars ?? {};
+    const linhas = linhasDaTriagem(vars, input.rotulos);
+    const auto = fluxoDaTrilha(
+      vars['trilha'],
+      this.appConfig.crm.fluxo as CrmFluxo,
+    );
+    const fluxo = CRM_FLUXOS.includes(auto.fluxo) ? auto.fluxo : '2.2';
+    const lead = await this.crm.registrar({
+      contato: contatoGosac(conv.numero, conv.contactId),
+      nome:
+        (vars['nome'] || conv.nome || conv.contactName || '').trim() ||
+        `Cliente ${conv.numero ?? conv.ticketId}`,
+      telefone: conv.numero,
+      fluxo,
+      fluxoProvisorio: auto.provisorio,
+      atendente,
+      atendimento: String(conv.ticketId),
+      conversa: linhas.join('; ').slice(0, 300) || undefined,
+    });
+
+    // Passos complementares: se algum falhar o lead já existe, então só registramos o aviso.
+    const ambientes = vars['ambientes']?.trim();
+    if (ambientes) {
+      await this.crm
+        .editar(lead.id, { ambientes: ambientes.slice(0, 200) })
+        .catch((e: Error) => errors.push(`funil/cadastro: ${e.message}`));
+    }
+    if (linhas.length && !input.reutilizar) {
+      await this.crm
+        .nota(
+          lead.id,
+          `Triagem pelo chatbot (ticket #${conv.ticketId}):\n${linhas.map((l) => `- ${l}`).join('\n')}`,
+        )
+        .catch((e: Error) => errors.push(`funil/nota: ${e.message}`));
+    }
+    return lead.id;
   }
 }

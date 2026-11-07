@@ -295,6 +295,7 @@ function enter(
           comNome: !!state.vars['nome'],
           reutilizar: node.reutilizarAtendente,
           jaAvisou: !!texto,
+          vars: state.vars,
         });
         return leave(acc, 'encaminhado', flow.id);
       }
@@ -410,7 +411,11 @@ export function stepFlow(
     );
   }
   if (input.kind === 'humano') {
-    acc.effects.push({ type: 'handoff', comNome: !!state.vars['nome'] });
+    acc.effects.push({
+      type: 'handoff',
+      comNome: !!state.vars['nome'],
+      vars: state.vars,
+    });
     return leave(acc, 'encaminhado', flow.id);
   }
   if (input.kind === 'duvida') {
@@ -550,7 +555,11 @@ export function stepFlow(
   // Resposta inválida: a 1ª avisa, as seguintes ficam em silêncio e, no limite, passa a um humano.
   const invalidos = state.invalidos + 1;
   if (invalidos >= opts.maxInvalid) {
-    acc.effects.push({ type: 'handoff', comNome: !!state.vars['nome'] });
+    acc.effects.push({
+      type: 'handoff',
+      comNome: !!state.vars['nome'],
+      vars: state.vars,
+    });
     return leave(acc, 'encaminhado', flow.id);
   }
   if (invalidos === 1) {

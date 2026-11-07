@@ -19,6 +19,7 @@ import { ChatbotHandoffService } from './services/chatbot-handoff.service';
 import { ChatbotRotationService } from './services/chatbot-rotation.service';
 import { ChatbotDriveService } from './services/chatbot-drive.service';
 import { ChatbotSchedulingService } from './services/chatbot-scheduling.service';
+import { CrmFunilService } from './services/crm-funil.service';
 import { AgentOrchestrator } from './agents/agent-orchestrator.service';
 import { ScopeAgent } from './agents/scope.agent';
 import { InterpreterAgent } from './agents/interpreter.agent';
@@ -48,6 +49,7 @@ import { ToolRegistry } from './tools/tool.registry';
     ChatbotRotationService,
     ChatbotDriveService,
     ChatbotSchedulingService,
+    CrmFunilService,
     ChatbotInboxService,
     ChatbotLockService,
     ChatbotAdminService,

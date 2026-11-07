@@ -224,11 +224,40 @@ export const CONFIG_FIELDS: ConfigField[] = [
     description: 'Só com o Pontta ligado.',
   },
   {
-    key: 'CHATBOT_DEAL_WORKFLOW_ID',
-    label: 'Funil do Pontta (workflow)',
+    key: 'CHATBOT_CRM_ENABLED',
+    label: 'Funil comercial (CMSYS)',
+    group: 'integracoes',
+    type: 'boolean',
+    sensitive: true,
+    description:
+      'Ao encaminhar o cliente, registra o lead no funil do CMSYS (sem duplicar), define o consultor pelo rodízio e anota o resumo da triagem. Também libera as etapas “Funil” nos fluxos.',
+  },
+  {
+    key: 'CRM_API_URL',
+    label: 'Endereço da API do funil (CMSYS)',
     group: 'integracoes',
     type: 'text',
-    description: 'Só com o Pontta ligado.',
+    placeholder: 'https://orcamentos.servidorcm.cloud',
+    description:
+      'Homologação e produção têm endereços e chaves diferentes. Sem barra no final.',
+  },
+  {
+    key: 'CRM_API_KEY',
+    label: 'Chave da API do funil (CMSYS)',
+    group: 'integracoes',
+    type: 'secret',
+    placeholder: 'chave de 48 caracteres',
+    description:
+      'Guardada criptografada. Nunca é exibida de novo. Peça uma chave própria ao administrador do CMSYS.',
+  },
+  {
+    key: 'CHATBOT_CRM_FLUXO',
+    label: 'Fluxo padrão do lead no funil',
+    group: 'integracoes',
+    type: 'text',
+    placeholder: '2.2',
+    description:
+      'Usado quando o cliente não escolheu “já tenho o projeto” (esse vai sempre para o fluxo 1). 2.1 = imóvel na planta; 2.2 = já com as chaves. O consultor confirma na Qualificação.',
   },
 ];
 
@@ -305,8 +334,14 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return c.driveRootFolderId ?? null;
       case 'CHATBOT_MEASURE_OWNER_ID':
         return c.measureOwnerId ?? null;
-      case 'CHATBOT_DEAL_WORKFLOW_ID':
-        return c.dealWorkflowId ?? null;
+      case 'CHATBOT_CRM_ENABLED':
+        return this.appConfig.crm.enabled;
+      case 'CRM_API_URL':
+        return this.appConfig.crm.baseUrl || null;
+      case 'CHATBOT_CRM_FLUXO':
+        return this.appConfig.crm.fluxo;
+      case 'CRM_API_KEY':
+        return null;
       case 'OPENAI_MODEL':
         return o.model;
       case 'OPENAI_API_KEY':
@@ -337,7 +372,10 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
       };
       if (f.type === 'secret') {
         view.value = null;
-        view.configured = !!this.appConfig.openai.apiKey;
+        view.configured =
+          f.key === 'CRM_API_KEY'
+            ? !!this.appConfig.crm.apiKey
+            : !!this.appConfig.openai.apiKey;
       }
       return view;
     });
@@ -370,6 +408,13 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
       }
       case 'secret': {
         const v = String(raw ?? '').trim();
+        if (field.key === 'CRM_API_KEY') {
+          if (!/^[A-Za-z0-9_\-]{20,200}$/.test(v))
+            throw new BadRequestException(
+              'A chave da API do funil parece inválida (só letras e números, de 20 a 200 caracteres).',
+            );
+          return v;
+        }
         if (!/^sk-[A-Za-z0-9_\-]{20,200}$/.test(v))
           throw new BadRequestException(
             'A chave da OpenAI parece inválida (deve começar com "sk-").',
@@ -388,6 +433,29 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
             `"${field.label}" tem caracteres inválidos.`,
           );
         }
+        if (field.key === 'CRM_API_URL') {
+          let url: URL | null = null;
+          try {
+            url = new URL(v);
+          } catch {
+            url = null;
+          }
+          const local = url?.hostname === 'localhost' || url?.hostname === '127.0.0.1';
+          if (
+            !url ||
+            url.username ||
+            url.password ||
+            (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))
+          )
+            throw new BadRequestException(
+              'O endereço da API do funil deve começar com https:// e não pode ter usuário ou senha.',
+            );
+          return v.replace(/\/+$/, '');
+        }
+        if (field.key === 'CHATBOT_CRM_FLUXO' && !['1', '2.1', '2.2'].includes(v))
+          throw new BadRequestException(
+            'O fluxo padrão do funil deve ser 1, 2.1 ou 2.2.',
+          );
         if (
           field.key === 'CHATBOT_DRIVE_ROOT_FOLDER_ID' &&
           !/^[A-Za-z0-9_\-]{10,80}$/.test(v)
@@ -405,6 +473,16 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
   private assertCanEnable(next: Record<string, string>): void {
     const get = (k: string, fallback: unknown) =>
       next[k] !== undefined ? next[k] : String(fallback ?? '');
+    const crmLigado =
+      get('CHATBOT_CRM_ENABLED', this.appConfig.crm.enabled) === 'true';
+    if (
+      crmLigado &&
+      (!get('CRM_API_URL', this.appConfig.crm.baseUrl) ||
+        !(next['CRM_API_KEY'] || this.appConfig.crm.apiKey))
+    )
+      throw new BadRequestException(
+        'Para ligar o funil comercial, informe o endereço e a chave da API do CMSYS.',
+      );
     const enabled =
       get('CHATBOT_ENABLED', this.appConfig.chatbot.enabled) === 'true';
     if (!enabled) return;

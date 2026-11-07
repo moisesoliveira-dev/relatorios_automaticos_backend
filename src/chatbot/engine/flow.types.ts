@@ -273,6 +273,8 @@ export type Effect =
       reutilizar?: boolean;
       /** A mensagem de encaminhamento já foi enviada pelo fluxo (texto próprio). */
       jaAvisou?: boolean;
+      /** Respostas coletadas até aqui (resumo para o funil comercial). */
+      vars?: Record<string, string>;
     };
 
 export interface FlowResult {

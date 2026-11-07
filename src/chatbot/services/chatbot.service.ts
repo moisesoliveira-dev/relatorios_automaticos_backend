@@ -615,6 +615,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
           reutilizar: hand.reutilizar,
           jaAvisou: hand.jaAvisou,
           flowId: r.flowId,
+          vars: hand.vars,
         });
         return;
       }
@@ -637,6 +638,15 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     await this.finishHandoff(conv, {});
   }
 
+  /** Nome legível de cada variável do fluxo (título da etapa que a perguntou). */
+  private rotulosDoFluxo(flowId?: string): Record<string, string> {
+    const rotulos: Record<string, string> = {};
+    const flow = flowId ? fluxoPorId(flowId) : undefined;
+    for (const n of flow?.nos ?? [])
+      if ('variavel' in n && n.variavel) rotulos[n.variavel] = n.titulo;
+    return rotulos;
+  }
+
   private async runTool(
     conv: ChatbotConversation,
     state: FlowState,
@@ -656,6 +666,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         nome: conv.nome,
         numero: conv.numero,
         driveFolderId: conv.driveFolderId,
+        crmLeadId: conv.crmLeadId,
       },
       state,
       params: eff.params,
@@ -669,6 +680,8 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
           conv.driveFolderId = result.conv.driveFolderId;
         if (result.conv.agendamentoStart)
           conv.agendamentoStart = new Date(result.conv.agendamentoStart);
+        if (result.conv.crmLeadId !== undefined)
+          conv.crmLeadId = result.conv.crmLeadId;
       }
       return result;
     } catch (error) {
@@ -681,15 +694,24 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   private async finishHandoff(
     conv: ChatbotConversation,
-    input: { reutilizar?: boolean; jaAvisou?: boolean; flowId?: string },
+    input: {
+      reutilizar?: boolean;
+      jaAvisou?: boolean;
+      flowId?: string;
+      vars?: Record<string, string>;
+    },
   ): Promise<void> {
-    const result = await this.handoff.execute(conv, input);
+    const result = await this.handoff.execute(conv, {
+      ...input,
+      rotulos: this.rotulosDoFluxo(input.flowId),
+    });
     conv.step = 'HUMANO';
     conv.emAtendimento = true;
     conv.finalizouTriagem = true;
     conv.atendenteId = result.atendenteId ?? conv.atendenteId;
     conv.filaId = result.filaId ?? conv.filaId;
     conv.handoffError = result.error;
+    conv.crmLeadId = result.crmLeadId ?? conv.crmLeadId;
     conv.flow = null;
     conv.history = []; // minimiza dados guardados depois da triagem
     await this.repo.save(conv);
@@ -818,6 +840,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         reprovacoes: this.humanizer.rejections,
       },
       ponttaEnabled: this.appConfig.chatbot.ponttaEnabled,
+      crmEnabled: this.appConfig.crm.enabled,
       model: this.appConfig.openai.model,
       conversationsByStep: Object.fromEntries(
         rows.map((r) => [r.step, Number(r.total)]),

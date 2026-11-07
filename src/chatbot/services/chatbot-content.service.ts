@@ -657,6 +657,7 @@ export class ChatbotContentService implements OnModuleInit {
               nome: r.state.vars['nome'] ?? null,
               numero: null,
               driveFolderId: null,
+              crmLeadId: null,
             },
             state: r.state,
             params: eff.params,

@@ -510,6 +510,7 @@ export class ChatbotAdminService {
               nome: r.state.vars['nome'] ?? null,
               numero: null,
               driveFolderId: null,
+              crmLeadId: null,
             },
             state: r.state,
             params: eff.params,

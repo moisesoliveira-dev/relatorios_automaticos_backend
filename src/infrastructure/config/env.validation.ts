@@ -43,8 +43,11 @@ export interface EnvConfig {
   CHATBOT_AI_DAILY_LIMIT: number;
   CHATBOT_HUMAN_IDLE_MINUTES: number;
   CHATBOT_MEASURE_OWNER_ID?: string;
-  CHATBOT_DEAL_WORKFLOW_ID?: string;
-  CHATBOT_DEAL_FALLBACK_EMAIL?: string;
+  /** Funil comercial do CMSYS (API de integração): cria o lead no encaminhamento e alimenta as ferramentas do fluxo. */
+  CHATBOT_CRM_ENABLED: boolean;
+  CHATBOT_CRM_FLUXO: string;
+  CRM_API_URL?: string;
+  CRM_API_KEY?: string;
   CHATBOT_DRIVE_ROOT_FOLDER_ID?: string;
   CHATBOT_FALLBACK_GOSAC_USER_ID?: number;
   CHATBOT_FALLBACK_GOSAC_QUEUE_ID?: number;
@@ -134,6 +137,9 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     if (readString(config, 'CHATBOT_PONTTA_ENABLED') === 'true' && !readString(config, 'CHATBOT_MEASURE_OWNER_ID')) {
       errors.push('CHATBOT_MEASURE_OWNER_ID (responsável pela agenda de medição no Pontta) é obrigatório com CHATBOT_PONTTA_ENABLED=true');
     }
+    if (readString(config, 'CHATBOT_CRM_ENABLED') === 'true' && (!readString(config, 'CRM_API_URL') || !readString(config, 'CRM_API_KEY'))) {
+      errors.push('CRM_API_URL e CRM_API_KEY são obrigatórios com CHATBOT_CRM_ENABLED=true');
+    }
   }
 
   if (errors.length > 0) {
@@ -188,8 +194,10 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     CHATBOT_AI_DAILY_LIMIT: readNumber(config, 'CHATBOT_AI_DAILY_LIMIT', 40),
     CHATBOT_HUMAN_IDLE_MINUTES: readNumber(config, 'CHATBOT_HUMAN_IDLE_MINUTES', 60),
     CHATBOT_MEASURE_OWNER_ID: readString(config, 'CHATBOT_MEASURE_OWNER_ID'),
-    CHATBOT_DEAL_WORKFLOW_ID: readString(config, 'CHATBOT_DEAL_WORKFLOW_ID'),
-    CHATBOT_DEAL_FALLBACK_EMAIL: readString(config, 'CHATBOT_DEAL_FALLBACK_EMAIL'),
+    CHATBOT_CRM_ENABLED: readString(config, 'CHATBOT_CRM_ENABLED') === 'true',
+    CHATBOT_CRM_FLUXO: ['1', '2.1', '2.2'].includes(readString(config, 'CHATBOT_CRM_FLUXO') ?? '') ? readString(config, 'CHATBOT_CRM_FLUXO')! : '2.2',
+    CRM_API_URL: readString(config, 'CRM_API_URL'),
+    CRM_API_KEY: readString(config, 'CRM_API_KEY'),
     CHATBOT_DRIVE_ROOT_FOLDER_ID: readString(config, 'CHATBOT_DRIVE_ROOT_FOLDER_ID'),
     CHATBOT_FALLBACK_GOSAC_USER_ID: readString(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID')
       ? readNumber(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID', 0)

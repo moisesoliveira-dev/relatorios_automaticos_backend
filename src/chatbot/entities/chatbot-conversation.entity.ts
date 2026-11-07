@@ -85,6 +85,10 @@ export class ChatbotConversation {
   @Column({ name: 'fila_id', type: 'int', nullable: true })
   filaId: number | null;
 
+  /** Lead desta conversa no funil comercial do CMSYS (API de integração). */
+  @Column({ name: 'crm_lead_id', type: 'varchar', length: 64, nullable: true })
+  crmLeadId: string | null;
+
   @Column({ name: 'agendamento_start', type: 'timestamptz', nullable: true })
   agendamentoStart: Date | null;
 

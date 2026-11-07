@@ -67,6 +67,18 @@ describe('validateEnv', () => {
         CHATBOT_PONTTA_ENABLED: 'true',
       }),
     ).toThrow(/CHATBOT_MEASURE_OWNER_ID/);
+    expect(() =>
+      validateEnv({ ...on, OPENAI_API_KEY: 'sk', CHATBOT_CRM_ENABLED: 'true' }),
+    ).toThrow(/CRM_API_URL e CRM_API_KEY/);
+    expect(() =>
+      validateEnv({
+        ...on,
+        OPENAI_API_KEY: 'sk',
+        CHATBOT_CRM_ENABLED: 'true',
+        CRM_API_URL: 'https://c',
+        CRM_API_KEY: 'k',
+      }),
+    ).not.toThrow();
   });
 
   it('valores padrão seguros', () => {
@@ -74,6 +86,8 @@ describe('validateEnv', () => {
     expect(e).toMatchObject({
       CHATBOT_ENABLED: false,
       CHATBOT_PONTTA_ENABLED: false,
+      CHATBOT_CRM_ENABLED: false,
+      CHATBOT_CRM_FLUXO: '2.2',
       JWT_EXPIRES_IN: '12h',
       DB_SYNCHRONIZE: false,
     });

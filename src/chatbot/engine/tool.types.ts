@@ -53,6 +53,8 @@ export interface ToolContext {
     nome: string | null;
     numero: string | null;
     driveFolderId: string | null;
+    /** Lead no funil comercial (CMSYS), quando já foi criado nesta conversa. */
+    crmLeadId: string | null;
   };
   state: FlowState;
   /** Parâmetros já com {variaveis} preenchidas. */
@@ -73,6 +75,7 @@ export type ToolResult =
       conv?: {
         driveFolderId?: string | null;
         agendamentoStart?: string | null;
+        crmLeadId?: string | null;
       };
       /** Ferramentas de escolha: lista para o cliente escolher. Vazia = caminho "semOpcoes". */
       opcoes?: Array<{ rotulo: string; valor: string }>;
@@ -85,7 +88,7 @@ export interface ToolDefinition {
   key: string;
   label: string;
   descricao: string;
-  grupo: 'Drive' | 'Agenda' | 'Conversa' | 'Atendimento' | 'Outros';
+  grupo: 'Drive' | 'Agenda' | 'Funil comercial' | 'Conversa' | 'Atendimento' | 'Outros';
   /** acao = faz algo e segue; escolha = devolve opções e a etapa espera a escolha do cliente. */
   modo: 'acao' | 'escolha';
   params: ParamSpec[];

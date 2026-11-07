@@ -143,11 +143,22 @@ export class AppConfigService {
       aiDailyLimit: this.num('CHATBOT_AI_DAILY_LIMIT', e.CHATBOT_AI_DAILY_LIMIT),
       humanIdleMinutes: this.num('CHATBOT_HUMAN_IDLE_MINUTES', e.CHATBOT_HUMAN_IDLE_MINUTES),
       measureOwnerId: this.str('CHATBOT_MEASURE_OWNER_ID', e.CHATBOT_MEASURE_OWNER_ID),
-      dealWorkflowId: this.str('CHATBOT_DEAL_WORKFLOW_ID', e.CHATBOT_DEAL_WORKFLOW_ID),
-      dealFallbackEmail: this.str('CHATBOT_DEAL_FALLBACK_EMAIL', e.CHATBOT_DEAL_FALLBACK_EMAIL),
       driveRootFolderId: this.str('CHATBOT_DRIVE_ROOT_FOLDER_ID', e.CHATBOT_DRIVE_ROOT_FOLDER_ID),
       fallbackGosacUserId: this.optNum('CHATBOT_FALLBACK_GOSAC_USER_ID', e.CHATBOT_FALLBACK_GOSAC_USER_ID),
       fallbackGosacQueueId: this.optNum('CHATBOT_FALLBACK_GOSAC_QUEUE_ID', e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID),
+    };
+  }
+
+  /** Funil comercial do CMSYS (API de integração). */
+  get crm() {
+    const e = this.env;
+    const fluxo = this.str('CHATBOT_CRM_FLUXO', e.CHATBOT_CRM_FLUXO) ?? '2.2';
+    return {
+      enabled: this.bool('CHATBOT_CRM_ENABLED', e.CHATBOT_CRM_ENABLED),
+      baseUrl: (this.str('CRM_API_URL', e.CRM_API_URL) ?? '').replace(/\/+$/, ''),
+      apiKey: this.str('CRM_API_KEY', e.CRM_API_KEY) ?? '',
+      /** Fluxo do funil usado quando a conversa não indica outro (1, 2.1 ou 2.2). */
+      fluxo: ['1', '2.1', '2.2'].includes(fluxo) ? fluxo : '2.2',
     };
   }
 
