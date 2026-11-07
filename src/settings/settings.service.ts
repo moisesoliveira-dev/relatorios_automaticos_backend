@@ -17,8 +17,6 @@ export class SettingsService {
         'DATABASE_PASSWORD',
         'JWT_SECRET',
         'API_KEY',
-        'PONTTA_API_KEY',
-        'PONTTA_PASSWORD',
         'ENCRYPTION_KEY',
         'GOOGLE_CLIENT_SECRET',
         'GOOGLE_REFRESH_TOKEN',
@@ -163,37 +161,21 @@ export class SettingsService {
             { key: 'SMTP_FROM', value: process.env.SMTP_FROM || '', category: 'email', description: 'Email remetente (ex: Nome <email@dominio.com>)' },
             { key: 'RESEND_API_KEY', value: process.env.RESEND_API_KEY || '', category: 'email', description: 'Chave da API Resend (necessária se provedor = resend)' },
 
-            // Pontta API - Configurações da API Pontta
-            { key: 'PONTTA_AUTH_URL', value: process.env.PONTTA_AUTH_URL || '', category: 'api', description: 'URL de Autenticação Pontta' },
-            { key: 'PONTTA_API_URL', value: process.env.PONTTA_API_URL || '', category: 'api', description: 'URL da API Pontta' },
-            { key: 'PONTTA_API_KEY', value: process.env.PONTTA_API_KEY || '', category: 'api', description: 'Chave da API Pontta' },
-            { key: 'PONTTA_EMAIL', value: process.env.PONTTA_EMAIL || '', category: 'api', description: 'Email Pontta' },
-            { key: 'PONTTA_PASSWORD', value: process.env.PONTTA_PASSWORD || '', category: 'api', description: 'Senha Pontta' },
-
-            // GOSAC - Ticket ao vincular pedido de venda
-            { key: 'GOSAC_TICKET_USER_ID', value: '71', category: 'api', description: 'ID do usuário responsável ao vincular pedido ao grupo GOSAC' },
-            { key: 'GOSAC_TICKET_QUEUE_ID', value: '62', category: 'api', description: 'ID da fila (departamento) ao vincular pedido ao grupo GOSAC' },
-
             // Frontend
             { key: 'FRONTEND_URL', value: process.env.FRONTEND_URL || 'http://localhost:4200', category: 'general', description: 'URL do frontend' },
 
-            // Jobs
-            { key: 'JOB_ENABLED', value: 'true', category: 'jobs', description: 'Habilitar execução de jobs' },
-            { key: 'JOB_MAX_RETRIES', value: '3', category: 'jobs', description: 'Máximo de tentativas' },
-
             // Controle de abas por perfil (persistido no banco)
-            { key: 'TABS_MASTER', value: 'dashboard,reports,jobs,gosac-pontta,usuarios,configuracoes', category: 'access', description: 'Abas visíveis para perfil master' },
-            { key: 'TABS_ADMIN', value: 'dashboard,reports,jobs,gosac-pontta,usuarios', category: 'access', description: 'Abas visíveis para perfil admin' },
-            { key: 'TABS_MANAGER', value: 'dashboard,reports,gosac-pontta', category: 'access', description: 'Abas visíveis para perfil manager' },
-            { key: 'TABS_USER', value: 'dashboard,reports', category: 'access', description: 'Abas visíveis para perfil user' },
+            { key: 'TABS_MASTER', value: 'rodizio,ia,usuarios,configuracoes', category: 'access', description: 'Abas visíveis para perfil master' },
+            { key: 'TABS_ADMIN', value: 'rodizio,ia,usuarios', category: 'access', description: 'Abas visíveis para perfil admin' },
+            { key: 'TABS_MANAGER', value: 'rodizio,ia', category: 'access', description: 'Abas visíveis para perfil manager' },
+            { key: 'TABS_USER', value: 'ia', category: 'access', description: 'Abas visíveis para perfil user' },
 
             // Google Drive
             { key: 'GOOGLE_DRIVE_ENABLED', value: 'false', category: 'drive', description: 'Habilitar integração com Google Drive' },
             { key: 'GOOGLE_CLIENT_ID', value: process.env.GOOGLE_CLIENT_ID || '', category: 'drive', description: 'Client ID do Google OAuth2' },
             { key: 'GOOGLE_CLIENT_SECRET', value: process.env.GOOGLE_CLIENT_SECRET || '', category: 'drive', description: 'Client Secret do Google OAuth2' },
             { key: 'GOOGLE_REFRESH_TOKEN', value: process.env.GOOGLE_REFRESH_TOKEN || '', category: 'drive', description: 'Refresh Token do Google OAuth2' },
-            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive (Montador)' },
-            { key: 'GOOGLE_DRIVE_DELIVERY_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive para Datas de Entrega de Material' },
+            { key: 'GOOGLE_DRIVE_FOLDER_ID', value: '', category: 'drive', description: 'ID da pasta raiz no Google Drive' },
         ];
 
         for (const def of defaults) {

@@ -208,22 +208,6 @@ export const CONFIG_FIELDS: ConfigField[] = [
     description: 'Onde nascem as pastas dos clientes (ano / mês / ANDAMENTO).',
   },
   {
-    key: 'CHATBOT_PONTTA_ENABLED',
-    label: 'Integração com o Pontta',
-    group: 'integracoes',
-    type: 'boolean',
-    sensitive: true,
-    description:
-      'Desligada por padrão: quem quer agendar medição vai direto a um atendente humano.',
-  },
-  {
-    key: 'CHATBOT_MEASURE_OWNER_ID',
-    label: 'Responsável da agenda de medição (Pontta)',
-    group: 'integracoes',
-    type: 'text',
-    description: 'Só com o Pontta ligado.',
-  },
-  {
     key: 'CHATBOT_CRM_ENABLED',
     label: 'Funil comercial (CMSYS)',
     group: 'integracoes',
@@ -312,8 +296,6 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return c.humanize;
       case 'CHATBOT_TYPING_DELAY':
         return c.typingDelay;
-      case 'CHATBOT_PONTTA_ENABLED':
-        return c.ponttaEnabled;
       case 'CHATBOT_DEBOUNCE_MS':
         return c.debounceMs;
       case 'CHATBOT_MAX_INVALID':
@@ -332,8 +314,6 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return c.fallbackGosacQueueId ?? null;
       case 'CHATBOT_DRIVE_ROOT_FOLDER_ID':
         return c.driveRootFolderId ?? null;
-      case 'CHATBOT_MEASURE_OWNER_ID':
-        return c.measureOwnerId ?? null;
       case 'CHATBOT_CRM_ENABLED':
         return this.appConfig.crm.enabled;
       case 'CRM_API_URL':

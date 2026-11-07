@@ -3,8 +3,8 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 export interface RotationPick {
-  /** ID do projetista no Pontta (tb_rotation.id). */
-  ponttaId: string;
+  /** Identificador do projetista no rodízio (tb_rotation.id). */
+  rotationId: string;
   name: string | null;
   gosacUserId: number;
   gosacQueueId: number | null;
@@ -67,7 +67,7 @@ export class ChatbotRotationService {
       await qr.commitTransaction();
 
       return {
-        ponttaId: current.id,
+        rotationId: current.id,
         name: current.name,
         gosacUserId: Number(current.identificacao),
         gosacQueueId: current.queueid != null ? Number(current.queueid) : null,

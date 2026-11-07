@@ -42,27 +42,6 @@ export class AppConfigService {
     return this.env.ENCRYPTION_KEY;
   }
 
-  get ponttaCredentials(): { email: string; password: string } {
-    return {
-      email: this.env.PONTTA_EMAIL,
-      password: this.env.PONTTA_PASSWORD,
-    };
-  }
-
-  get ponttaApi(): {
-    authUrl: string;
-    apiUrl: string;
-    apiKey: string;
-    businessUnitId?: string;
-  } {
-    return {
-      authUrl: this.env.PONTTA_AUTH_URL,
-      apiUrl: this.env.PONTTA_API_URL,
-      apiKey: this.env.PONTTA_API_KEY,
-      businessUnitId: this.env.PONTTA_BUSINESS_UNIT_ID,
-    };
-  }
-
   get gosacApi(): { baseUrl?: string; apiKey?: string } {
     return {
       baseUrl: this.env.GOSAC_BASE_URL,
@@ -133,7 +112,6 @@ export class AppConfigService {
     return {
       enabled: this.bool('CHATBOT_ENABLED', e.CHATBOT_ENABLED),
       aiEnabled: this.bool('CHATBOT_AI_ENABLED', e.CHATBOT_AI_ENABLED),
-      ponttaEnabled: this.bool('CHATBOT_PONTTA_ENABLED', e.CHATBOT_PONTTA_ENABLED),
       debounceMs: this.num('CHATBOT_DEBOUNCE_MS', e.CHATBOT_DEBOUNCE_MS),
       maxInvalid: this.num('CHATBOT_MAX_INVALID', e.CHATBOT_MAX_INVALID),
       maxOffTopic: this.num('CHATBOT_MAX_OFF_TOPIC', e.CHATBOT_MAX_OFF_TOPIC),
@@ -142,7 +120,6 @@ export class AppConfigService {
       writerDailyLimit: this.num('CHATBOT_WRITER_DAILY_LIMIT', e.CHATBOT_WRITER_DAILY_LIMIT),
       aiDailyLimit: this.num('CHATBOT_AI_DAILY_LIMIT', e.CHATBOT_AI_DAILY_LIMIT),
       humanIdleMinutes: this.num('CHATBOT_HUMAN_IDLE_MINUTES', e.CHATBOT_HUMAN_IDLE_MINUTES),
-      measureOwnerId: this.str('CHATBOT_MEASURE_OWNER_ID', e.CHATBOT_MEASURE_OWNER_ID),
       driveRootFolderId: this.str('CHATBOT_DRIVE_ROOT_FOLDER_ID', e.CHATBOT_DRIVE_ROOT_FOLDER_ID),
       fallbackGosacUserId: this.optNum('CHATBOT_FALLBACK_GOSAC_USER_ID', e.CHATBOT_FALLBACK_GOSAC_USER_ID),
       fallbackGosacQueueId: this.optNum('CHATBOT_FALLBACK_GOSAC_QUEUE_ID', e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID),
@@ -199,26 +176,6 @@ export class AppConfigService {
       username: this.env.DB_USERNAME,
       password: this.env.DB_PASSWORD,
       database: this.env.DB_DATABASE,
-    };
-  }
-
-  get jobsEnabled(): boolean {
-    return this.env.JOBS_ENABLED !== 'false';
-  }
-
-  get autoTasks(): {
-    diasChecagemMedida: number;
-    diasRevisaoProjeto: number;
-    diasProjetoExecutivo: number;
-    diasAprovacaoExecutivo: number;
-    diasEnvioCliente: number;
-  } {
-    return {
-      diasChecagemMedida: Number(this.env.TASK_DIAS_CHECAGEM_MEDIDA || 2),
-      diasRevisaoProjeto: Number(this.env.TASK_DIAS_REVISAO_PROJETO || 2),
-      diasProjetoExecutivo: Number(this.env.TASK_DIAS_PROJETO_EXECUTIVO || 2),
-      diasAprovacaoExecutivo: Number(this.env.TASK_DIAS_APROVACAO_EXECUTIVO || 2),
-      diasEnvioCliente: Number(this.env.TASK_DIAS_ENVIO_CLIENTE || 2),
     };
   }
 }

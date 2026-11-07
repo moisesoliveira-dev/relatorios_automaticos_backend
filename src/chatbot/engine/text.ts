@@ -55,7 +55,7 @@ const NAME_PREFIX_RE =
 
 /**
  * Valida e limpa um nome informado pelo cliente. Devolve null quando não parece um nome
- * (frases, números, links, e-mails...). Isso também limita o que vai para a pasta do Drive e para o Pontta.
+ * (frases, números, links, e-mails...). Isso também limita o que vai para a pasta do Drive e para o funil comercial.
  */
 export function validarNome(raw: string | null | undefined): string | null {
   let text = normalizeText(raw);

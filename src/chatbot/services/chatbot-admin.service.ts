@@ -277,7 +277,6 @@ export class ChatbotAdminService {
       respostas,
       arquivos: c.arquivos,
       pastaDrive: !!c.driveFolderId,
-      agendamento: c.agendamentoStart,
       historico: c.history ?? [],
     };
   }

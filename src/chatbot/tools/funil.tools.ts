@@ -73,7 +73,7 @@ function falhou(e: unknown): ToolResult {
 
 const NADA_A_FAZER = { ok: true } as const;
 
-/** Ferramentas do funil comercial do CMSYS (API de integração): o que o Pontta fazia como "negócio". */
+/** Ferramentas do funil comercial do CMSYS (API de integração). */
 export function funilTools(
   crm: CrmFunilService,
   config: AppConfigService,

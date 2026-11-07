@@ -9,24 +9,14 @@ import { Repository } from 'typeorm';
 import { Rotation } from './entities/rotation.entity';
 import { CreateRotationDto, UpdateRotationDto } from './dto/rotation.dto';
 import { GosacService } from '../gosac/gosac.service';
-import { PonttaService } from '../pontta/pontta.service';
-import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class RotationService {
-    private readonly ponttaEmail: string;
-    private readonly ponttaPassword: string;
-
     constructor(
         @InjectRepository(Rotation, 'rotation')
         private readonly rotationRepository: Repository<Rotation>,
         private readonly gosacService: GosacService,
-        private readonly ponttaService: PonttaService,
-        private readonly configService: ConfigService,
-    ) {
-        this.ponttaEmail = this.configService.get<string>('PONTTA_EMAIL') || '';
-        this.ponttaPassword = this.configService.get<string>('PONTTA_PASSWORD') || '';
-    }
+    ) { }
 
     findAll(): Promise<Rotation[]> {
         return this.rotationRepository.find({
@@ -110,20 +100,6 @@ export class RotationService {
     async remove(id: string): Promise<void> {
         const rotation = await this.findOne(id);
         await this.rotationRepository.remove(rotation);
-    }
-
-    async searchPonttaProfiles(query: string): Promise<any[]> {
-        let token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-        try {
-            return await this.ponttaService.searchUsers(token, query);
-        } catch (error) {
-            if (error?.status === 401 || error?.response?.status === 401) {
-                this.ponttaService.clearTokenCache(this.ponttaEmail);
-                token = await this.ponttaService.authenticate(this.ponttaEmail, this.ponttaPassword);
-                return await this.ponttaService.searchUsers(token, query);
-            }
-            throw error;
-        }
     }
 
     listGosacUsers(): Promise<any[]> {

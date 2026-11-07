@@ -135,41 +135,4 @@ export class EmailService {
             );
         }
     }
-
-    async sendReportEmail(
-        to: string,
-        content: string | Buffer,
-        isExcel: boolean = false,
-        reportName: string = 'relatorio_ocorrencias',
-    ): Promise<boolean> {
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('pt-BR');
-        const timeStr = now.toLocaleTimeString('pt-BR');
-
-        const extension = isExcel ? 'xlsx' : 'csv';
-        const contentType = isExcel
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : 'text/csv; charset=utf-8';
-
-        return this.sendEmail({
-            to,
-            subject: `Relatório de Ocorrências Pontta - ${dateStr}`,
-            html: `
-        <h2>📊 Relatório de Ocorrências</h2>
-        <p>Olá,</p>
-        <p>Segue em anexo o relatório de ocorrências gerado em <strong>${dateStr}</strong> às <strong>${timeStr}</strong>.</p>
-        <p>O arquivo está em formato <strong>${isExcel ? 'Excel (.xlsx)' : 'CSV'}</strong> e pode ser aberto no Microsoft Excel, Google Sheets ou LibreOffice.</p>
-        <br>
-                <p>Atenciosamente,</p>
-                <p><strong>CMM System</strong></p>
-      `,
-            attachments: [
-                {
-                    filename: `${reportName}_${now.toISOString().split('T')[0]}.${extension}`,
-                    content: Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8'),
-                    contentType,
-                },
-            ],
-        });
-    }
 }

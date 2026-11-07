@@ -1,24 +1,22 @@
 # CMM System — Backend
 
-API NestJS do console operacional Automi (relatórios, GOSAC, PCP, rodízio).
+API NestJS do console operacional Automi: atendimento por WhatsApp com IA (chatbot), rodízio de atendentes, usuários e configurações.
 
 ## Stack
 
 - NestJS 11 · TypeORM · PostgreSQL
-- Integrações: Pontta ERP, GOSAC WhatsApp, Google Drive, SMTP
+- Integrações: GOSAC WhatsApp, OpenAI, Funil comercial do CMSYS (API de integração), Google Drive, SMTP
 
-## Arquitetura
+> O Pontta (relatórios, tarefas automáticas, PCP, agenda) foi removido. O que ele fazia está registrado em [docs/pontta-legado/COMO-FUNCIONAVA.md](./docs/pontta-legado/COMO-FUNCIONAVA.md).
 
-O projeto adota **Clean Architecture + Hexagonal + DDD** de forma incremental. O bounded context **PCP Operacional** já está refatorado como referência.
-
-Detalhes completos: [ARCHITECTURE.md](./ARCHITECTURE.md)
+Detalhes de arquitetura: [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ## Setup local
 
 ```bash
 npm install
 cp .env.development.example .env.development
-# Edite .env.development com suas credenciais Pontta/GOSAC
+# Edite .env.development com suas credenciais GOSAC
 npm run start:dev
 ```
 
@@ -38,7 +36,7 @@ docker compose up --build
 | `.env.development.example` | Template dev (commitado) |
 | `.env.production.example` | Template prod (commitado) |
 
-Variáveis obrigatórias: `JWT_SECRET`, `ENCRYPTION_KEY`, `PONTTA_*`, `GOSAC_*`.  
+Variáveis obrigatórias: `JWT_SECRET`, `ENCRYPTION_KEY`, `GOSAC_*`.  
 Em produção: também `DATABASE_URL` e `ROTATION_DATABASE_URL`.
 
 ## Scripts
@@ -54,13 +52,13 @@ npm run test         # testes unitários
 
 ```
 src/
-├── contexts/pcp/          # Bounded context PCP (hexagonal)
+├── chatbot/               # Chatbot com IA: motor de fluxos, ferramentas, agentes
 ├── infrastructure/config/ # Config validada + AppConfigService
-├── gosac/                 # Integração GOSAC + webhook
-├── pontta/                # Client HTTP Pontta
-├── report/                # Relatórios e jobs agendados
-├── rotation/              # CRUD rodízio (banco separado)
-├── users/ · auth/         # Autenticação e permissões
+├── gosac/                 # Webhook do GOSAC + consulta de usuários e filas
+├── rotation/              # CRUD do rodízio (banco separado)
+├── drive/                 # Google Drive
+├── email/                 # Envio de e-mail (convites)
+├── users/ · auth/         # Autenticação e permissões (abas: rodizio, ia, usuarios, configuracoes)
 └── settings/              # Configurações criptografadas
 ```
 

@@ -3,9 +3,6 @@ import { validateEnv } from './env.validation';
 const base = {
   JWT_SECRET: 'a'.repeat(40),
   ENCRYPTION_KEY: 'b'.repeat(40),
-  PONTTA_EMAIL: 'x@x.com',
-  PONTTA_PASSWORD: 'x',
-  PONTTA_API_KEY: 'k',
 };
 
 describe('validateEnv', () => {
@@ -43,7 +40,7 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...base, DB_SSL: 'false' }).DB_SSL).toBe(false);
   });
 
-  it('chatbot ligado exige OpenAI, GOSAC e segredo do webhook em produção; Pontta só se ligado', () => {
+  it('chatbot ligado exige OpenAI, GOSAC e segredo do webhook em produção; funil comercial só se ligado', () => {
     const on = {
       ...base,
       CHATBOT_ENABLED: 'true',
@@ -60,13 +57,6 @@ describe('validateEnv', () => {
         DB_HOST: 'h',
       }),
     ).toThrow(/GOSAC_WEBHOOK_SECRET/);
-    expect(() =>
-      validateEnv({
-        ...on,
-        OPENAI_API_KEY: 'sk',
-        CHATBOT_PONTTA_ENABLED: 'true',
-      }),
-    ).toThrow(/CHATBOT_MEASURE_OWNER_ID/);
     expect(() =>
       validateEnv({ ...on, OPENAI_API_KEY: 'sk', CHATBOT_CRM_ENABLED: 'true' }),
     ).toThrow(/CRM_API_URL e CRM_API_KEY/);
@@ -85,7 +75,6 @@ describe('validateEnv', () => {
     const e = validateEnv({ ...base });
     expect(e).toMatchObject({
       CHATBOT_ENABLED: false,
-      CHATBOT_PONTTA_ENABLED: false,
       CHATBOT_CRM_ENABLED: false,
       CHATBOT_CRM_FLUXO: '2.2',
       JWT_EXPIRES_IN: '12h',

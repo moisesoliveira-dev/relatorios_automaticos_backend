@@ -61,8 +61,8 @@ export class CrmError extends Error {
 const ID_OK = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * Cliente da API de integração do CMSYS (funil comercial). Substitui o negócio que o chatbot
- * criava no Pontta. Autenticação: cabeçalho X-Integracao-Chave (uma chave por ambiente).
+ * Cliente da API de integração do CMSYS (funil comercial). Cria o lead do cliente ao encaminhar
+ * e alimenta as etapas "Funil comercial" dos fluxos. Autenticação: cabeçalho X-Integracao-Chave (uma chave por ambiente).
  */
 @Injectable()
 export class CrmFunilService {

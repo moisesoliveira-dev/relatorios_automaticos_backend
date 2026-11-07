@@ -6,7 +6,6 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppInitService } from './app-init.service';
-import { ReportModule } from './report/report.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
@@ -15,18 +14,9 @@ import { RotationModule } from './rotation/rotation.module';
 import { InfrastructureConfigModule } from './infrastructure/config/infrastructure-config.module';
 import { AppConfigService } from './infrastructure/config/app-config.service';
 import { User } from './users/entities/user.entity';
-import { Report, ReportEmail, ReportExecution } from './report/entities/report.entity';
-import { GosacGroup } from './gosac/entities/gosac-group.entity';
-import { PonttaSalesOrder } from './gosac/entities/pontta-sales-order.entity';
-import { GosacSalesOrderLink } from './gosac/entities/gosac-sales-order-link.entity';
-import { DashboardMetric, SystemLog } from './report/entities/dashboard.entity';
-import { ScheduledJob } from './report/entities/job.entity';
 import { Setting } from './settings/entities/setting.entity';
 import { Rotation } from './rotation/entities/rotation.entity';
-import { PonttaRotation } from './rotation/entities/pontta-rotation.entity';
-import { AutoTaskProcessedOrder } from './auto-tasks/entities/auto-task-processed-order.entity';
 import { ChatbotConversation } from './chatbot/entities/chatbot-conversation.entity';
-import { ChatbotBookedSlot } from './chatbot/entities/chatbot-booked-slot.entity';
 import { ChatbotInboxMessage } from './chatbot/entities/chatbot-inbox-message.entity';
 import { join } from 'path';
 
@@ -47,19 +37,8 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
     type: 'postgres',
     entities: [
       User,
-      Report,
-      ReportEmail,
-      ReportExecution,
-      DashboardMetric,
-      SystemLog,
-      ScheduledJob,
       Setting,
-      GosacGroup,
-      PonttaSalesOrder,
-      GosacSalesOrderLink,
-      AutoTaskProcessedOrder,
       ChatbotConversation,
-      ChatbotBookedSlot,
       ChatbotInboxMessage,
     ],
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
@@ -100,7 +79,7 @@ function buildRotationDatabaseConfig(appConfig: AppConfigService): TypeOrmModule
   return {
     name: 'rotation',
     type: 'postgres',
-    entities: [Rotation, PonttaRotation],
+    entities: [Rotation],
     synchronize: false,
     logging: false,
     ...parsed,
@@ -143,7 +122,6 @@ if (!rotationEnabled) {
     AuthModule,
     UsersModule,
     SettingsModule,
-    ReportModule,
     GosacModule,
   ],
   controllers: [AppController],

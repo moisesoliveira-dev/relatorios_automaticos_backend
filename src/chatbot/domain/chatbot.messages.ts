@@ -25,12 +25,8 @@ export const MESSAGES = {
     '📝 Para finalizarmos, você pode me informar qual ambiente deseja ver e projetar?\n\nMande cada número separadamente na mesma mensagem, exemplo: *2 1 3*\n\nAs opções são:\n\n*1* - 🍳 Cozinha\n*2* - 🛋️ Sala de Estar\n*3* - 🛏️ Dormitório\n*4* - 🚿 Banheiro\n*5* - 🍽️ Sala de Jantar\n*6* - 🍻 Canto Alemão\n*7* - 💻 Home Office\n*8* - 🏢 Ambiente Coorporativo\n*9* - ❌ Nenhum destes ambientes\n\n0 - ↩️ Voltar para etapa anterior.\n10 - 🔄 Recomeçar o atendimento.\n\n👉 *Envie o número da opção desejada.*',
   agendar_medicao_pergunta:
     'Podemos agendar uma visita para realizar as medições necessárias.\n\n📅 Deseja agendar um horário com nossa equipe?\n\n*1* -  Quero agendar 📝\n*2* - Não quero agendar ❌\n\n0 - ↩️ Voltar uma etapa\n10 - 🔄 Recomeçar o atendimento\n\n👉 *Envie o número da opção desejada.*',
-  escolher_horario:
-    'Para finalizarmos com o atendimento, por favor, escolha o melhor horário para realizarmos a medição 🕐📏\n\n*1 - {horario1}*\n2 - {horario2}\n*3 - {horario3}*\n4 - {horario4}\n*5 - {horario5}*\n6 - {horario6}\n*7 - {horario7}*\n8 - {horario8}\n*9 - Nenhum desses horários.*\n\n0 - ↩️ Voltar uma etapa\n10 - 🔄 Recomeçar o atendimento\n\n👉 *Envie o número da opção desejada.*',
   horario_agendado:
     'Entendi!\n\nAgora vou te direcionar para que o responsável possa falar com você sobre a medição no local.\n\nEle poderá confirmar todos os detalhes com você. 👷📏\n\n⏳ Aguarde um momento, por favor!',
-  horario_indisponivel:
-    'Ops! 😅 O horário que você escolheu já foi agendado por outra pessoa. Por favor, selecione outro horário disponível. ⏰',
   nao_quer_agendar:
     '❌ Tudo bem, sem problemas!\n\nCaso mude de ideia no futuro ou precise de ajuda com qualquer outra coisa, estaremos à disposição.\n\n🙏 Obrigado pelo seu tempo e tenha um ótimo dia! ☀️',
   info_boleto:

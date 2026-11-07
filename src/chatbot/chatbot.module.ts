@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { PonttaModule } from '../pontta/pontta.module';
 import { DriveModule } from '../drive/drive.module';
 import { SettingsModule } from '../settings/settings.module';
 import { ChatbotConversation } from './entities/chatbot-conversation.entity';
@@ -10,7 +9,6 @@ import { ChatbotLockService } from './services/chatbot-lock.service';
 import { ChatbotAdminService } from './services/chatbot-admin.service';
 import { ChatbotContentService } from './services/chatbot-content.service';
 import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.service';
-import { ChatbotBookedSlot } from './entities/chatbot-booked-slot.entity';
 import { ChatbotController } from './chatbot.controller';
 import { ChatbotService } from './services/chatbot.service';
 import { GosacMessengerService } from './services/gosac-messenger.service';
@@ -18,7 +16,6 @@ import { OpenAiService } from './services/openai.service';
 import { ChatbotHandoffService } from './services/chatbot-handoff.service';
 import { ChatbotRotationService } from './services/chatbot-rotation.service';
 import { ChatbotDriveService } from './services/chatbot-drive.service';
-import { ChatbotSchedulingService } from './services/chatbot-scheduling.service';
 import { CrmFunilService } from './services/crm-funil.service';
 import { AgentOrchestrator } from './agents/agent-orchestrator.service';
 import { ScopeAgent } from './agents/scope.agent';
@@ -33,10 +30,8 @@ import { ToolRegistry } from './tools/tool.registry';
   imports: [
     TypeOrmModule.forFeature([
       ChatbotConversation,
-      ChatbotBookedSlot,
       ChatbotInboxMessage,
     ]),
-    PonttaModule,
     DriveModule,
     SettingsModule,
   ],
@@ -48,7 +43,6 @@ import { ToolRegistry } from './tools/tool.registry';
     ChatbotHandoffService,
     ChatbotRotationService,
     ChatbotDriveService,
-    ChatbotSchedulingService,
     CrmFunilService,
     ChatbotInboxService,
     ChatbotLockService,

@@ -7,9 +7,7 @@ import {
   ToolInfo,
 } from '../engine/tool.types';
 import { ChatbotDriveService } from '../services/chatbot-drive.service';
-import { ChatbotSchedulingService } from '../services/chatbot-scheduling.service';
 import { CrmFunilService } from '../services/crm-funil.service';
-import { agendaTools } from './agenda.tools';
 import { conversaTools } from './conversa.tools';
 import { driveTools } from './drive.tools';
 import { funilTools } from './funil.tools';
@@ -26,13 +24,11 @@ export class ToolRegistry implements ToolCatalog {
 
   constructor(
     drive: ChatbotDriveService,
-    scheduling: ChatbotSchedulingService,
     crm: CrmFunilService,
     config: AppConfigService,
   ) {
     for (const t of [
       ...driveTools(drive),
-      ...agendaTools(scheduling, config),
       ...funilTools(crm, config),
       ...conversaTools(),
     ])

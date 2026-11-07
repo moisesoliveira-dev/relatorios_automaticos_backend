@@ -49,7 +49,6 @@ import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { ChatbotHandoffService } from './chatbot-handoff.service';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { ChatbotDriveService } from './chatbot-drive.service';
-import { ChatbotSchedulingService } from './chatbot-scheduling.service';
 import { ChatbotInboxService, PendingMessage } from './chatbot-inbox.service';
 import { ChatbotLockService } from './chatbot-lock.service';
 import { ToolRegistry } from '../tools/tool.registry';
@@ -155,7 +154,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     private readonly humanizer: ChatbotHumanizerService,
     private readonly handoff: ChatbotHandoffService,
     private readonly drive: ChatbotDriveService,
-    private readonly scheduling: ChatbotSchedulingService,
     private readonly inbox: ChatbotInboxService,
     private readonly lock: ChatbotLockService,
     private readonly tools: ToolRegistry,
@@ -678,8 +676,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       if (result.ok && result.conv) {
         if (result.conv.driveFolderId !== undefined)
           conv.driveFolderId = result.conv.driveFolderId;
-        if (result.conv.agendamentoStart)
-          conv.agendamentoStart = new Date(result.conv.agendamentoStart);
         if (result.conv.crmLeadId !== undefined)
           conv.crmLeadId = result.conv.crmLeadId;
       }
@@ -810,13 +806,12 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   // ───────────────────────── manutenção ─────────────────────────
 
-  /** Privacidade: apaga conversas sem atividade há 90 dias e reservas de horário antigas. */
+  /** Privacidade: apaga conversas sem atividade há 90 dias. */
   @Cron('0 4 * * *')
   async cleanup(): Promise<void> {
     if (!this.enabled) return;
     const cut = new Date(Date.now() - 90 * 24 * 3600_000);
     const res = await this.repo.delete({ updatedAt: LessThan(cut) });
-    await this.scheduling.cleanup();
     await this.inbox.purge();
     if (res.affected)
       this.logger.log(`Limpeza: ${res.affected} conversa(s) antigas removidas`);
@@ -839,7 +834,6 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         resultados: this.humanizer.counters,
         reprovacoes: this.humanizer.rejections,
       },
-      ponttaEnabled: this.appConfig.chatbot.ponttaEnabled,
       crmEnabled: this.appConfig.crm.enabled,
       model: this.appConfig.openai.model,
       conversationsByStep: Object.fromEntries(

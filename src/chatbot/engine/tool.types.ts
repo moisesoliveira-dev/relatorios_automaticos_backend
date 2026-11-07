@@ -71,10 +71,9 @@ export type ToolResult =
       valor?: string;
       /** Variáveis extras a gravar. */
       vars?: Record<string, string>;
-      /** Mudanças na conversa (ex.: pasta criada, medição marcada). */
+      /** Mudanças na conversa (ex.: pasta criada, lead criado). */
       conv?: {
         driveFolderId?: string | null;
-        agendamentoStart?: string | null;
         crmLeadId?: string | null;
       };
       /** Ferramentas de escolha: lista para o cliente escolher. Vazia = caminho "semOpcoes". */
@@ -88,7 +87,7 @@ export interface ToolDefinition {
   key: string;
   label: string;
   descricao: string;
-  grupo: 'Drive' | 'Agenda' | 'Funil comercial' | 'Conversa' | 'Atendimento' | 'Outros';
+  grupo: 'Drive' | 'Funil comercial' | 'Conversa' | 'Atendimento' | 'Outros';
   /** acao = faz algo e segue; escolha = devolve opções e a etapa espera a escolha do cliente. */
   modo: 'acao' | 'escolha';
   params: ParamSpec[];

@@ -5,7 +5,6 @@ import {
 } from '../domain/chatbot.messages';
 import { SPECS } from '../domain/message-specs';
 import { FlowDoc, FlowNode, NodeSpec, SystemMessages } from './flow.types';
-import { HORARIO_INDISPONIVEL } from '../tools/agenda.tools';
 
 /**
  * O atendimento da Vera D'Or como fluxos do motor. É o ponto de partida de quem nunca publicou nada
@@ -396,7 +395,7 @@ export function seedFlows(): FlowDoc[] {
         opcoes: [
           {
             rotulo: 'Quero agendar 📝',
-            proximo: 'horarios',
+            proximo: 'encaminhar_agendado',
             palavras: ['sim', 'quero', 'agendar'],
           },
           {
@@ -408,47 +407,9 @@ export function seedFlows(): FlowDoc[] {
         spec: specOf('agendar_medicao_pergunta'),
       },
       {
-        id: 'horarios',
-        tipo: 'ferramenta',
-        titulo: 'Oferecer horários',
-        ferramenta: 'agenda.oferecer_horarios',
-        params: {
-          texto: head(MESSAGES.escolher_horario),
-          nenhum: 'Nenhum desses horários.',
-        },
-        variavel: 'horario',
-        proximo: 'decidir_horario',
-        falha: 'encaminhar',
-        semOpcoes: 'encaminhar',
-        spec: specOf('escolher_horario'),
-      },
-      {
-        id: 'decidir_horario',
-        tipo: 'condicao',
-        titulo: 'Escolheu um horário?',
-        regras: [
-          {
-            variavel: 'horario',
-            op: 'igual',
-            valor: 'nenhum',
-            proximo: 'encaminhar',
-          },
-        ],
-        senao: 'reservar',
-      },
-      {
-        id: 'reservar',
-        tipo: 'ferramenta',
-        titulo: 'Reservar o horário',
-        ferramenta: 'agenda.reservar',
-        params: { horario: 'horario', avisoOcupado: HORARIO_INDISPONIVEL },
-        proximo: 'encaminhar_agendado',
-        falha: 'horarios',
-      },
-      {
         id: 'encaminhar_agendado',
         tipo: 'encaminhar',
-        titulo: 'Encaminhar com medição marcada',
+        titulo: 'Encaminhar para combinar a medição',
         texto: head(MESSAGES.horario_agendado),
         spec: specOf('horario_agendado'),
       },

@@ -89,9 +89,6 @@ export class ChatbotConversation {
   @Column({ name: 'crm_lead_id', type: 'varchar', length: 64, nullable: true })
   crmLeadId: string | null;
 
-  @Column({ name: 'agendamento_start', type: 'timestamptz', nullable: true })
-  agendamentoStart: Date | null;
-
   @Column({ name: 'handoff_error', type: 'text', nullable: true })
   handoffError: string | null;
 

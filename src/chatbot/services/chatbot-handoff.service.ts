@@ -122,7 +122,7 @@ export class ChatbotHandoffService {
       errors.push(`ticket: ${(error as Error).message}`);
     }
 
-    // 4) Funil comercial do CMSYS (substitui o negócio do Pontta): falha aqui nunca impede a entrega
+    // 4) Funil comercial do CMSYS: falha aqui nunca impede a entrega
     let crmLeadId: string | null = conv.crmLeadId ?? null;
     if (this.crm.enabled) {
       try {

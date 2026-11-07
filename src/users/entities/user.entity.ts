@@ -38,7 +38,7 @@ export class User {
     @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
     role: UserRole;
 
-    /** Abas liberadas para o usuário (ex.: dashboard, gosac-pontta/grupos). */
+    /** Abas liberadas para o usuário (ex.: ia, rodizio). */
     @Column({ type: 'simple-json', nullable: true })
     tabs: string[] | null;
 

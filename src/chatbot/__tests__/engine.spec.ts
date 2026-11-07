@@ -44,17 +44,17 @@ const catalog: ToolCatalog = {
         produz: { pasta: true },
       }),
       'drive.salvar_respostas': tool(key, { requer: { pasta: true } }),
-      'agenda.oferecer_horarios': tool(key, {
+      'teste.escolher': tool(key, {
         modo: 'escolha',
         params: [
           { key: 'texto', label: 'Texto', type: 'texto', obrigatorio: true },
         ],
       }),
-      'agenda.reservar': tool(key, {
+      'teste.confirmar': tool(key, {
         params: [
-          { key: 'horario', label: 'h', type: 'variavel', obrigatorio: true },
+          { key: 'escolha', label: 'e', type: 'variavel', obrigatorio: true },
         ],
-        produz: { vars: ['agendamento'] },
+        produz: { vars: ['confirmado'] },
       }),
       'conversa.definir': tool(key, {
         params: [
@@ -173,7 +173,7 @@ describe('seed da Vera', () => {
     expect(r.effects[0]).toMatchObject({ type: 'handoff', comNome: true });
   });
 
-  it('"não tenho nada": ambientes em lista, agenda com horários dinâmicos e reserva', () => {
+  it('"não tenho nada": ambientes em lista e, ao querer agendar, segue para o responsável combinar a medição', () => {
     const p = published();
     let r = startFlow(p, 'vera');
     r = say(p, r.state!, '3');
@@ -194,75 +194,133 @@ describe('seed da Vera', () => {
       'Sala de Estar, Cozinha, Dormitório',
     );
 
-    r = say(p, r.state!, '1'); // quero agendar → ferramenta de escolha
-    expect(r.effects[0]).toMatchObject({
-      type: 'ferramenta',
-      ferramenta: 'agenda.oferecer_horarios',
-    });
-    r = settle(p, r, {
-      'agenda.oferecer_horarios': {
-        ok: true,
-        opcoes: [
-          { rotulo: '10/10 07:00 - 09:00', valor: 'a|b' },
-          { rotulo: 'Nenhum', valor: 'nenhum' },
-        ],
-      },
-    });
-    expect(r.state?.nodeId).toBe('horarios');
-    expect(r.state?.dinamicas).toHaveLength(2);
-    expect(texts(r)[0]).toContain('*1* - 10/10 07:00 - 09:00');
-
-    r = say(p, r.state!, '1');
-    expect(r.state?.vars['horario']).toBe('a|b');
-    expect(r.effects[0]).toMatchObject({
-      type: 'ferramenta',
-      ferramenta: 'agenda.reservar',
-    });
-    r = settle(p, r);
+    r = say(p, r.state!, '1'); // quero agendar → um atendente combina o horário
     expect(r.saiu).toBe('encaminhado');
     expect(texts(r).join(' ')).toContain('responsável');
+    expect(r.effects[0]).toMatchObject({ type: 'handoff' });
   });
 
-  it('horário ocupado volta a oferecer; "nenhum" encaminha', () => {
-    const p = published();
-    const s: FlowState = {
-      flowId: 'sem_nada',
-      nodeId: 'horarios',
-      historico: ['agendar'],
-      vars: { nome: 'X' },
-      arquivos: 0,
-      invalidos: 0,
-      dinamicas: [
-        { rotulo: 'h', valor: 'a|b' },
-        { rotulo: 'n', valor: 'nenhum' },
+  describe('etapa de ferramenta com opções dinâmicas', () => {
+    const flowEscolha = (): Published => ({
+      fluxos: [
+        {
+          id: 'f',
+          nome: 'Fluxo de teste',
+          descricao: '',
+          ativo: true,
+          nos: [
+            {
+              id: 'opcoes',
+              tipo: 'ferramenta',
+              titulo: 'Oferecer opções',
+              ferramenta: 'teste.escolher',
+              params: { texto: 'Escolha uma opção', nenhum: 'Nenhuma.' },
+              variavel: 'escolha',
+              proximo: 'decidir',
+              falha: 'enc',
+              semOpcoes: 'enc',
+            },
+            {
+              id: 'decidir',
+              tipo: 'condicao',
+              titulo: 'Escolheu uma?',
+              regras: [
+                {
+                  variavel: 'escolha',
+                  op: 'igual',
+                  valor: 'nenhum',
+                  proximo: 'enc',
+                },
+              ],
+              senao: 'confirmar',
+            },
+            {
+              id: 'confirmar',
+              tipo: 'ferramenta',
+              titulo: 'Confirmar',
+              ferramenta: 'teste.confirmar',
+              params: { escolha: 'escolha' },
+              proximo: 'enc',
+              falha: 'opcoes',
+            },
+            { id: 'enc', tipo: 'encaminhar', titulo: 'Encaminhar' },
+          ],
+        } as FlowDoc,
       ],
-    };
-    let r = say(p, s, '1');
-    const after = resumeTool(p, r.state!, {
-      ok: false,
-      motivo: 'ocupado',
-      replies: ['ocupado!'],
+      sistema: { ...DEFAULT_SYSTEM },
     });
-    expect(texts(after)[0]).toBe('ocupado!');
-    expect(after.effects[0]).toMatchObject({
-      ferramenta: 'agenda.oferecer_horarios',
-    });
-    r = say(p, s, '2');
-    expect(r.saiu).toBe('encaminhado');
-  });
 
-  it('sem horários livres segue pelo caminho "semOpcoes"', () => {
-    const p = published();
-    const s: FlowState = {
-      flowId: 'sem_nada',
-      nodeId: 'horarios',
-      historico: [],
-      vars: {},
-      arquivos: 0,
-      invalidos: 0,
-    };
-    const r = resumeTool(p, s, { ok: true, opcoes: [] });
-    expect(r.saiu).toBe('encaminhado');
+    it('lista as opções que a ferramenta devolveu e guarda a escolhida', () => {
+      const p = flowEscolha();
+      let r = startFlow(p, 'f');
+      expect(r.effects[0]).toMatchObject({
+        type: 'ferramenta',
+        ferramenta: 'teste.escolher',
+      });
+      r = settle(p, r, {
+        'teste.escolher': {
+          ok: true,
+          opcoes: [
+            { rotulo: 'Opção A', valor: 'a|b' },
+            { rotulo: 'Nenhuma', valor: 'nenhum' },
+          ],
+        },
+      });
+      expect(r.state?.nodeId).toBe('opcoes');
+      expect(r.state?.dinamicas).toHaveLength(2);
+      expect(texts(r)[0]).toContain('*1* - Opção A');
+
+      r = say(p, r.state!, '1');
+      expect(r.state?.vars['escolha']).toBe('a|b');
+      expect(r.effects[0]).toMatchObject({
+        type: 'ferramenta',
+        ferramenta: 'teste.confirmar',
+      });
+      r = settle(p, r);
+      expect(r.saiu).toBe('encaminhado');
+    });
+
+    it('se a confirmação falha, avisa e oferece de novo; "nenhuma" encaminha', () => {
+      const p = flowEscolha();
+      const s: FlowState = {
+        flowId: 'f',
+        nodeId: 'opcoes',
+        historico: [],
+        vars: {},
+        arquivos: 0,
+        invalidos: 0,
+        dinamicas: [
+          { rotulo: 'A', valor: 'a|b' },
+          { rotulo: 'n', valor: 'nenhum' },
+        ],
+      };
+      const escolhido = say(p, s, '1');
+      const after = resumeTool(p, escolhido.state!, {
+        ok: false,
+        motivo: 'ocupado',
+        replies: ['ocupado!'],
+      });
+      expect(texts(after)[0]).toBe('ocupado!');
+      expect(after.effects[0]).toMatchObject({
+        ferramenta: 'teste.escolher',
+      });
+      expect(say(p, s, '2').saiu).toBe('encaminhado');
+    });
+
+    it('sem opções segue pelo caminho "semOpcoes"', () => {
+      const p = flowEscolha();
+      const s: FlowState = {
+        flowId: 'f',
+        nodeId: 'opcoes',
+        historico: [],
+        vars: {},
+        arquivos: 0,
+        invalidos: 0,
+      };
+      expect(resumeTool(p, s, { ok: true, opcoes: [] }).saiu).toBe(
+        'encaminhado',
+      );
+    });
   });
 
   it('0 volta uma etapa, 10 recomeça, atendente encaminha', () => {

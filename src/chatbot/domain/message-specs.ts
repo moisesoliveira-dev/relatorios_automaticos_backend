@@ -112,12 +112,6 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
     usaNome: true,
     maxChars: 260,
   },
-  escolher_horario: {
-    objetivo:
-      'Pedir que o cliente escolha o melhor horário para a medição entre os listados.',
-    pontos: [p('horario', 'horarios'), p('medicao', 'medir', 'medidas')],
-    maxChars: 220,
-  },
   horario_agendado: {
     objetivo:
       'Confirmar que será direcionado ao responsável para combinar os detalhes da medição no local e pedir um momento.',
