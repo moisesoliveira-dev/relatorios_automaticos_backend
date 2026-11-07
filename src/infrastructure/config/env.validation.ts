@@ -27,6 +27,9 @@ export interface EnvConfig {
   OPENAI_TIMEOUT_MS: number;
   CHATBOT_ENABLED: boolean;
   CHATBOT_AI_ENABLED: boolean;
+  /** Modo teste: o chatbot só atende os números de CHATBOT_TEST_NUMBERS. */
+  CHATBOT_TEST_MODE: boolean;
+  CHATBOT_TEST_NUMBERS?: string;
   CHATBOT_DEBOUNCE_MS: number;
   CHATBOT_MAX_INVALID: number;
   CHATBOT_MAX_OFF_TOPIC: number;
@@ -152,6 +155,8 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     OPENAI_TIMEOUT_MS: readNumber(config, 'OPENAI_TIMEOUT_MS', 12000),
     CHATBOT_ENABLED: chatbotEnabled,
     CHATBOT_AI_ENABLED: aiEnabled,
+    CHATBOT_TEST_MODE: readString(config, 'CHATBOT_TEST_MODE') === 'true',
+    CHATBOT_TEST_NUMBERS: readString(config, 'CHATBOT_TEST_NUMBERS'),
     CHATBOT_DEBOUNCE_MS: readNumber(config, 'CHATBOT_DEBOUNCE_MS', 3000),
     CHATBOT_MAX_INVALID: readNumber(config, 'CHATBOT_MAX_INVALID', 3),
     CHATBOT_MAX_OFF_TOPIC: readNumber(config, 'CHATBOT_MAX_OFF_TOPIC', 3),

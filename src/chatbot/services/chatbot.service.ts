@@ -46,6 +46,7 @@ import {
 import { GosacMessengerService } from './gosac-messenger.service';
 import { OpenAiService } from './openai.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
+import { isAllowedNumber, parseNumberList } from '../domain/test-mode';
 import { ChatbotHandoffService } from './chatbot-handoff.service';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { ChatbotDriveService } from './chatbot-drive.service';
@@ -181,6 +182,13 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
 
   // ───────────────────────── entrada ─────────────────────────
 
+  /** Modo teste ligado: só os números cadastrados passam. Desligado: todos. */
+  private allowedNow(numero: unknown): boolean {
+    const c = this.appConfig.chatbot;
+    if (!c.testMode) return true;
+    return isAllowedNumber(numero, parseNumberList(c.testNumbers));
+  }
+
   /** Chamado pelo webhook. Nunca lança e nunca bloqueia a resposta HTTP. */
   receive(payload: unknown): void {
     if (!this.enabled) return;
@@ -188,6 +196,8 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       const msg = parseWebhook(payload);
       if (!msg || msg.isGroup) return;
       if (msg.mediaType && IGNORED_MEDIA.has(msg.mediaType)) return;
+      // Modo teste: só os números da lista (os demais seguem como se o bot não existisse)
+      if (!this.allowedNow(msg.numero)) return;
 
       if (msg.fromMe) {
         // Só interessa saber se um humano assumiu a conversa.
@@ -835,6 +845,8 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         reprovacoes: this.humanizer.rejections,
       },
       crmEnabled: this.appConfig.crm.enabled,
+      testMode: this.appConfig.chatbot.testMode,
+      testNumbers: parseNumberList(this.appConfig.chatbot.testNumbers).length,
       model: this.appConfig.openai.model,
       conversationsByStep: Object.fromEntries(
         rows.map((r) => [r.step, Number(r.total)]),

@@ -7,8 +7,9 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { SettingsService } from '../../settings/settings.service';
+import { canonicalNumber, parseNumberList } from '../domain/test-mode';
 
-export type FieldType = 'boolean' | 'number' | 'text' | 'secret';
+export type FieldType = 'boolean' | 'number' | 'text' | 'secret' | 'list';
 export type FieldGroup =
   | 'geral'
   | 'ia'
@@ -40,6 +41,24 @@ export const CONFIG_FIELDS: ConfigField[] = [
     sensitive: true,
     description:
       'Liga o atendimento automático. Antes de ligar, desative o fluxo CMM no n8n (senão o cliente recebe duas respostas).',
+  },
+  {
+    key: 'CHATBOT_TEST_MODE',
+    label: 'Modo teste',
+    group: 'geral',
+    type: 'boolean',
+    sensitive: true,
+    description:
+      'Ligado, o chatbot só atende os números da lista abaixo; qualquer outro número é ignorado (não recebe resposta do bot). Use para testar com segurança antes de abrir para todos.',
+  },
+  {
+    key: 'CHATBOT_TEST_NUMBERS',
+    label: 'Números do modo teste',
+    group: 'geral',
+    type: 'list',
+    placeholder: '(92) 99123-4567',
+    description:
+      'Telefones com DDD que o chatbot atende no modo teste. Pode ser com ou sem 55 e com ou sem o 9.',
   },
   {
     key: 'CHATBOT_AI_ENABLED',
@@ -292,6 +311,10 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return c.enabled;
       case 'CHATBOT_AI_ENABLED':
         return c.aiEnabled;
+      case 'CHATBOT_TEST_MODE':
+        return c.testMode;
+      case 'CHATBOT_TEST_NUMBERS':
+        return c.testNumbers || null;
       case 'CHATBOT_HUMANIZE':
         return c.humanize;
       case 'CHATBOT_TYPING_DELAY':
@@ -386,6 +409,22 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
           );
         return String(n);
       }
+      case 'list': {
+        const lista = Array.isArray(raw) ? raw : String(raw ?? '').split(/[\n,;]+/);
+        const itens = lista.map((x) => String(x).trim()).filter(Boolean);
+        const numeros: string[] = [];
+        for (const item of itens) {
+          const n = canonicalNumber(item);
+          if (!n)
+            throw new BadRequestException(
+              `"${item}" não parece um telefone com DDD (ex.: 92 99123-4567).`,
+            );
+          if (!numeros.includes(n)) numeros.push(n);
+        }
+        if (numeros.length > 50)
+          throw new BadRequestException('No máximo 50 números no modo teste.');
+        return numeros.join(',');
+      }
       case 'secret': {
         const v = String(raw ?? '').trim();
         if (field.key === 'CRM_API_KEY') {
@@ -453,6 +492,17 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
   private assertCanEnable(next: Record<string, string>): void {
     const get = (k: string, fallback: unknown) =>
       next[k] !== undefined ? next[k] : String(fallback ?? '');
+    const testeLigado =
+      get('CHATBOT_TEST_MODE', this.appConfig.chatbot.testMode) === 'true';
+    if (
+      testeLigado &&
+      !parseNumberList(
+        get('CHATBOT_TEST_NUMBERS', this.appConfig.chatbot.testNumbers),
+      ).length
+    )
+      throw new BadRequestException(
+        'Para ligar o modo teste, adicione ao menos um número (senão o chatbot não atenderia ninguém).',
+      );
     const crmLigado =
       get('CHATBOT_CRM_ENABLED', this.appConfig.crm.enabled) === 'true';
     if (

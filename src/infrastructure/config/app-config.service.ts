@@ -112,6 +112,8 @@ export class AppConfigService {
     return {
       enabled: this.bool('CHATBOT_ENABLED', e.CHATBOT_ENABLED),
       aiEnabled: this.bool('CHATBOT_AI_ENABLED', e.CHATBOT_AI_ENABLED),
+      testMode: this.bool('CHATBOT_TEST_MODE', e.CHATBOT_TEST_MODE),
+      testNumbers: this.str('CHATBOT_TEST_NUMBERS', e.CHATBOT_TEST_NUMBERS) ?? '',
       debounceMs: this.num('CHATBOT_DEBOUNCE_MS', e.CHATBOT_DEBOUNCE_MS),
       maxInvalid: this.num('CHATBOT_MAX_INVALID', e.CHATBOT_MAX_INVALID),
       maxOffTopic: this.num('CHATBOT_MAX_OFF_TOPIC', e.CHATBOT_MAX_OFF_TOPIC),
