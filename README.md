@@ -37,7 +37,7 @@ docker compose up --build
 | `.env.production.example` | Template prod (commitado) |
 
 Variáveis obrigatórias: `JWT_SECRET`, `ENCRYPTION_KEY`, `GOSAC_*`.  
-Em produção: também `DATABASE_URL` e `ROTATION_DATABASE_URL`.
+Em produção: também `DATABASE_URL`. `ROTATION_DATABASE_URL` é opcional: aponta para o banco antigo do rodízio e serve só para copiar as pessoas uma vez para o banco principal (depois pode remover).
 
 ## Scripts
 
@@ -55,7 +55,7 @@ src/
 ├── chatbot/               # Chatbot com IA: motor de fluxos, ferramentas, agentes
 ├── infrastructure/config/ # Config validada + AppConfigService
 ├── gosac/                 # Webhook do GOSAC + consulta de usuários e filas
-├── rotation/              # CRUD do rodízio (banco separado)
+├── rotation/              # CRUD do rodízio (tabela tb_rotation, banco principal)
 ├── drive/                 # Google Drive
 ├── email/                 # Envio de e-mail (convites)
 ├── users/ · auth/         # Autenticação e permissões (abas: rodizio, ia, usuarios, configuracoes)

@@ -1,5 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { getDataSourceToken } from '@nestjs/typeorm';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 export interface RotationPick {
@@ -11,7 +10,7 @@ export interface RotationPick {
 }
 
 /**
- * Rodízio de projetistas (tabela tb_rotation, banco "rotation").
+ * Rodízio de projetistas (tabela tb_rotation, no banco principal).
  * Diferença para o n8n: seleção e avanço do turno acontecem na MESMA transação com
  * `FOR UPDATE`, então dois clientes simultâneos nunca caem no mesmo projetista.
  */
@@ -19,11 +18,7 @@ export interface RotationPick {
 export class ChatbotRotationService {
   private readonly logger = new Logger(ChatbotRotationService.name);
 
-  constructor(
-    @Optional()
-    @Inject(getDataSourceToken('rotation'))
-    private readonly dataSource?: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   get available(): boolean {
     return !!this.dataSource?.isInitialized;

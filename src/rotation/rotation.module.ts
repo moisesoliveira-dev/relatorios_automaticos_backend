@@ -7,7 +7,7 @@ import { GosacModule } from '../gosac/gosac.module';
 import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Rotation], 'rotation'), GosacModule, SettingsModule],
+    imports: [TypeOrmModule.forFeature([Rotation]), GosacModule, SettingsModule],
     controllers: [RotationController],
     providers: [RotationService],
 })

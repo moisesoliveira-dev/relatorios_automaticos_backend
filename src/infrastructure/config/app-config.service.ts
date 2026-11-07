@@ -157,6 +157,7 @@ export class AppConfigService {
     return this.pick(key) || process.env[key]?.trim() || this.openai.model;
   }
 
+  /** Banco antigo do rodízio: só serve para importar as pessoas uma vez (veja RotationService.importLegacy). */
   get rotationDatabaseUrl(): string | undefined {
     return this.env.ROTATION_DATABASE_URL;
   }

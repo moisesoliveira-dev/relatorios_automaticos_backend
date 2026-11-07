@@ -19,7 +19,7 @@ Infrastructure TypeORM · GOSAC · CMSYS (funil) · Google Drive · SMTP
 |--------|---------|-------|
 | Chatbot | `src/chatbot/` | Atendimento por fluxos publicados, IA, ferramentas (Drive, funil comercial) |
 | Gosac / WhatsApp | `src/gosac/` | Webhook (entrega ao chatbot) e consulta de usuários/filas |
-| Rodízio | `src/rotation/` | Quem atende a vez (tabela `tb_rotation`, banco separado) |
+| Rodízio | `src/rotation/` | Quem atende a vez (tabela `tb_rotation`, no banco principal) |
 | Usuários & Auth | `src/users/`, `src/auth/` | Login, convites e abas de acesso |
 | Settings | `src/settings/` | Configurações criptografadas editáveis pela tela |
 

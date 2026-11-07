@@ -38,6 +38,7 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
     entities: [
       User,
       Setting,
+      Rotation,
       ChatbotConversation,
       ChatbotInboxMessage,
     ],
@@ -69,45 +70,6 @@ function buildAppDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptio
   };
 }
 
-function buildRotationDatabaseConfig(appConfig: AppConfigService): TypeOrmModuleOptions {
-  const rotationUrl = appConfig.rotationDatabaseUrl?.trim();
-  if (!rotationUrl) {
-    throw new Error('ROTATION_DATABASE_URL não configurada');
-  }
-
-  const parsed = parseDatabaseUrl(rotationUrl);
-  return {
-    name: 'rotation',
-    type: 'postgres',
-    entities: [Rotation],
-    synchronize: false,
-    logging: false,
-    ...parsed,
-    ssl: appConfig.dbSsl ? { rejectUnauthorized: appConfig.dbSslRejectUnauthorized } : false,
-  };
-}
-
-const rotationEnabled = !!process.env.ROTATION_DATABASE_URL?.trim();
-const rotationImports = rotationEnabled
-  ? [
-      TypeOrmModule.forRootAsync({
-        name: 'rotation',
-        imports: [InfrastructureConfigModule],
-        useFactory: (appConfig: AppConfigService) => buildRotationDatabaseConfig(appConfig),
-        inject: [AppConfigService],
-      }),
-      RotationModule,
-    ]
-  : [];
-
-if (process.env.NODE_ENV === 'production' && !rotationEnabled) {
-  throw new Error('ROTATION_DATABASE_URL é obrigatória em produção');
-}
-
-if (!rotationEnabled) {
-  console.warn('[App] ROTATION_DATABASE_URL ausente — módulo de rodízio desabilitado (ok em desenvolvimento local)');
-}
-
 @Module({
   imports: [
     InfrastructureConfigModule,
@@ -118,7 +80,7 @@ if (!rotationEnabled) {
       useFactory: (appConfig: AppConfigService) => buildAppDatabaseConfig(appConfig),
       inject: [AppConfigService],
     }),
-    ...rotationImports,
+    RotationModule,
     AuthModule,
     UsersModule,
     SettingsModule,
