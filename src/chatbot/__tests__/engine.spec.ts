@@ -346,13 +346,14 @@ describe('seed da Vera', () => {
     expect(texts(r)[0]).toContain('outra forma de atendimento');
   });
 
-  it('respostas inválidas: avisa uma vez, silencia e no limite encaminha', () => {
+  it('respostas inválidas: avisa, depois repete a pergunta e no limite encaminha', () => {
     const p = published();
     let r = say(p, startFlow(p, 'vera').state!, 'xpto');
     expect(r.invalido).toBe(true);
     expect(texts(r)).toEqual([DEFAULT_SYSTEM.invalida_generica]);
     r = say(p, r.state!, 'xpto');
-    expect(texts(r)).toEqual([]);
+    expect(texts(r)[0]).toBe(DEFAULT_SYSTEM.invalida_generica);
+    expect(texts(r)).toHaveLength(2); // repete a pergunta
     r = say(p, r.state!, 'xpto');
     expect(r.saiu).toBe('encaminhado');
   });
@@ -480,7 +481,7 @@ describe('motor: condição, ir para, ferramenta que define variável', () => {
     };
     const e = checkFlow(f, catalog, [f]);
     expect(e.join('\n')).toContain('precisa de {nome} respondida antes');
-    expect(e.join('\n')).toContain('não é uma variável deste fluxo');
+    expect(e.join('\n')).toContain('não existe neste fluxo');
     expect(e.join('\n')).toContain('não existe mais');
     expect(e.join('\n')).toContain('precisa terminar');
   });

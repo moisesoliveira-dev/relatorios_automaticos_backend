@@ -1,4 +1,4 @@
-import { OpenAiService } from '../services/openai.service';
+import { OpenAiService, textoValido } from '../services/openai.service';
 
 describe('OpenAiService.callTool', () => {
   const config = (
@@ -107,5 +107,50 @@ describe('OpenAiService.callTool', () => {
     expect(
       'temperature' in client.chat.completions.create.mock.calls[0][0],
     ).toBe(false);
+  });
+});
+
+describe('OpenAiService: textos e falhas que não devem pausar a IA', () => {
+  it('remove meio-emoji que surge ao cortar um texto', () => {
+    const emoji = '😊';
+    expect(textoValido(`ola ${emoji.slice(0, 1)}`)).toBe('ola ');
+    expect(textoValido(`${emoji.slice(1)} fim`)).toBe(' fim');
+    expect(textoValido(`inteiro ${emoji} ok`)).toBe(`inteiro ${emoji} ok`);
+  });
+
+  const servico = (erro: { status?: number }) => {
+    const svc = new OpenAiService({
+      chatbot: { aiEnabled: true },
+      openai: { apiKey: 'k', timeoutMs: 100 },
+      modelFor: () => 'm',
+    } as never);
+    svc.setClientForTests({
+      chat: {
+        completions: {
+          create: () => Promise.reject(Object.assign(new Error('x'), erro)),
+        },
+      },
+    } as never);
+    return svc;
+  };
+  const call = {
+    agent: 'scope',
+    system: 's',
+    user: 'u',
+    tool: { name: 't', description: 'd', parameters: {} },
+  };
+
+  it('erro 400 repetido não abre o disjuntor', async () => {
+    const svc = servico({ status: 400 });
+    for (let i = 0; i < 5; i++) await svc.callTool(call);
+    expect(svc.breakerOpen).toBe(false);
+  });
+
+  it('erro 500 ou 429 repetido abre o disjuntor', async () => {
+    for (const status of [500, 429]) {
+      const svc = servico({ status });
+      for (let i = 0; i < 3; i++) await svc.callTool(call);
+      expect(svc.breakerOpen).toBe(true);
+    }
   });
 });
