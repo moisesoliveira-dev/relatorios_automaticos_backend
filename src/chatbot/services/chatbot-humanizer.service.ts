@@ -30,6 +30,10 @@ const SYSTEM_SPEC: Record<string, keyof typeof SPECS> = {
   invalida_nome: 'invalida_nome',
   invalida_arquivos: 'invalida_arquivos',
   invalida_lista: 'invalida_ambientes',
+  duvida_sem_resposta: 'duvida_sem_resposta',
+  dado_corrigido: 'dado_corrigido',
+  retomar_conversa: 'retomar_conversa',
+  esclarecer_etapa: 'esclarecer_etapa',
   fora_escopo: 'fora_escopo',
   fora_escopo_limite: 'fora_escopo_limite',
   audio_nao_suportado: 'audio_nao_suportado',
@@ -37,6 +41,20 @@ const SYSTEM_SPEC: Record<string, keyof typeof SPECS> = {
   redirecionando: 'redirecionando_projetistas',
   redirecionando_com_nome: 'redirecionando_projetistas_com_nome',
 };
+
+/** Repetir a pergunta depois de um desvio: curta, sem se apresentar nem cumprimentar de novo. */
+function specDeRetomada(spec: MessageSpec): MessageSpec {
+  return {
+    ...spec,
+    saudacao: false,
+    usaNome: false,
+    objetivo: spec.saudacao
+      ? 'Perguntar, em uma frase curta, qual das opções abaixo o cliente prefere. Sem cumprimentar, sem se apresentar e sem citar as opções.'
+      : `Lembrar em uma frase curta o que falta o cliente responder, sem cumprimentar, sem se apresentar e sem comentar o que ele acabou de dizer. O que falta: ${spec.objetivo}`,
+    pontos: spec.saudacao ? [] : spec.pontos,
+    maxChars: Math.min(spec.maxChars ?? 200, 200),
+  };
+}
 
 /**
  * Dá voz humana às mensagens do bot. Recebe o texto que o motor decidiu enviar (com a
@@ -97,9 +115,12 @@ export class ChatbotHumanizerService {
   private specFor(reply: Reply, reescrever: boolean): MessageSpec | undefined {
     if (reply.spec) {
       return {
+        modo: reply.spec.modo,
         objetivo:
-          reply.spec.objetivo ??
-          'Dizer exatamente o que a mensagem diz, no tom definido, sem acrescentar nem tirar informação.',
+          reply.spec.objetivo ||
+          (reply.spec.modo === 'obrigatorio'
+            ? 'Escrever só uma frase curta e natural que conduza ao texto que será anexado, sem repetir o conteúdo dele.'
+            : 'Dizer exatamente o que a mensagem diz, no tom definido, sem acrescentar nem tirar informação.'),
         pontos: (reply.spec.pontos ?? []).map((anyOf) => ({ anyOf })),
         saudacao: reply.spec.saudacao,
         usaNome: reply.spec.usaNome,
@@ -134,7 +155,8 @@ export class ChatbotHumanizerService {
     if (!this.enabled) return [text];
     const flow = flowId ? fluxoPorId(flowId) : undefined;
     const guidance: Guidance = guidanceOf(flow);
-    const spec = this.specFor(reply, !!flow?.reescrever);
+    const base = this.specFor(reply, !!flow?.reescrever);
+    const spec = base && reply.retomada ? specDeRetomada(base) : base;
     const key = reply.nodeId ?? reply.sistema ?? 'texto';
     if (!spec) {
       this.counters.sem_spec++;
@@ -145,7 +167,14 @@ export class ChatbotHumanizerService {
       return [text];
     }
 
-    const { head, block } = splitBlock(spec, text);
+    const partes = splitBlock(spec, text);
+    // Texto obrigatório vai literal, como bloco fixo: a IA escreve em volta, nunca em cima dele.
+    const block = spec.modo === 'obrigatorio' ? text.trim() : partes.block;
+    // Só instrução: a IA não vê o texto de reserva, para não copiá-lo.
+    const head =
+      spec.modo === 'obrigatorio' || spec.modo === 'instrucao'
+        ? spec.objetivo
+        : partes.head;
     const history = ctx.history ?? [];
     const lastCustomer = [...history]
       .reverse()

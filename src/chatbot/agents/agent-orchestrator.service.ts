@@ -21,6 +21,17 @@ export type Decision =
   | 'escopo_indisponivel'
   | 'sem_interpretacao';
 
+const RESPONDE_ETAPA = new Set<FlowInput['kind']>([
+  'opcao',
+  'valor',
+  'itens',
+  'ok',
+  'voltar',
+  'recomecar',
+  'humano',
+  'corrigir',
+]);
+
 /**
  * Orquestrador determinístico dos agentes. Quem decide a ordem, o que é aceito e o que acontece
  * em caso de falha é CÓDIGO, não o modelo. Cada agente tem uma função, um schema estrito e sua
@@ -79,7 +90,7 @@ export class AgentOrchestrator {
       });
 
     if (!this.available)
-      return this.done('ia_indisponivel', { kind: 'invalido' });
+      return this.done('ia_indisponivel', { kind: 'invalido', falhaIa: true });
 
     // 2) Escopo e interpretação em paralelo
     const [scope, interpretation] = await Promise.all([
@@ -90,8 +101,12 @@ export class AgentOrchestrator {
     if (scope && scope.categoria !== 'dentro') {
       const grave =
         scope.categoria === 'manipulacao' || scope.categoria === 'ofensivo';
-      // "fora" com baixa confiança em mensagem curta/ambígua não é recusado (evita falso positivo)
-      if (grave || scope.confianca !== 'baixa')
+      // Se a mensagem responde à etapa, ela vale: um nome ou "não achei a planta" não é "fora do assunto".
+      // "fora" com baixa confiança em mensagem curta/ambígua também não é recusado (evita falso positivo).
+      const respondeEtapa =
+        interpretation?.kind === 'flow' &&
+        RESPONDE_ETAPA.has(interpretation.input.kind);
+      if (grave || (!respondeEtapa && scope.confianca !== 'baixa'))
         return this.done('fora_escopo', {
           kind: 'fora_escopo',
           severidade: grave ? 'grave' : 'leve',
@@ -99,16 +114,21 @@ export class AgentOrchestrator {
     }
 
     if (!interpretation)
-      return this.done('sem_interpretacao', { kind: 'invalido' });
+      return this.done('sem_interpretacao', {
+        kind: 'invalido',
+        falhaIa: true,
+      });
     if (interpretation.kind === 'flow')
       return this.done('fluxo', interpretation.input);
 
     // 3) Dúvida: só responde com escopo confirmado + base de conhecimento + verificação independente
-    if (!scope) return this.done('escopo_indisponivel', { kind: 'humano' });
+    if (!scope)
+      return this.done('escopo_indisponivel', { kind: 'duvida_sem_resposta' });
 
     const hits = kb ? retrieveKb(ctx.message, 3, kb) : retrieveKb(ctx.message);
     const answer = await this.faq.run(ctx.message, hits, guidance);
-    if (!answer) return this.done('duvida_sem_base', { kind: 'humano' });
+    if (!answer)
+      return this.done('duvida_sem_base', { kind: 'duvida_sem_resposta' });
 
     const sources = hits.filter((k) => answer.fontes.includes(k.id));
     const approved = await this.verifier.run(
@@ -116,7 +136,8 @@ export class AgentOrchestrator {
       answer.resposta,
       sources,
     );
-    if (!approved) return this.done('duvida_reprovada', { kind: 'humano' });
+    if (!approved)
+      return this.done('duvida_reprovada', { kind: 'duvida_sem_resposta' });
 
     return this.done('duvida_respondida', {
       kind: 'duvida',

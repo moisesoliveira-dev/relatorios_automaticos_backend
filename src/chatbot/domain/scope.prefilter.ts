@@ -17,6 +17,10 @@ const INJECTION: RegExp[] = [
   /\b(voce agora e|a partir de agora voce|finja (ser|que)|aja como|haja como|atue como|act as|pretend (to be|you))\b/,
   /\b(revele|mostre|repita|exiba|diga)\b.{0,30}\b(instruc|prompt|regras internas|configurac)/,
   /<\/?(system|assistant|mensagem_cliente|tool|function)[^>]*>/,
+  /\b(repeat|repita)\b.{0,30}\b(above|acima)\b/,
+  /\b(dados|lista|telefones?|cpfs?)\b.{0,25}\b(d[oa]s? )?(ultimo |outros? )?clientes?\b/,
+  /\b(liste|listar)\b.{0,20}\bclientes\b/,
+  /\bcontato pessoal\b/,
   /\b(role|papel)\s*[:=]\s*(system|assistant)/,
 ];
 

@@ -18,6 +18,7 @@ import {
   slug,
   validarResposta,
 } from './text';
+import { prefilter } from '../domain/scope.prefilter';
 
 /**
  * Motor de fluxos. Função PURA: recebe os fluxos publicados, o estado da conversa e uma entrada já
@@ -35,6 +36,8 @@ export interface Published {
 
 export interface EngineOptions {
   maxInvalid: number;
+  /** Desvios seguidos numa etapa antes de passar a um atendente (padrão: MAX_DESVIOS). */
+  maxDesvios?: number;
 }
 
 const MAX_STEPS = 40;
@@ -133,7 +136,8 @@ export function promptOf(p: Published, state: FlowState): Reply | null {
   return {
     texto: prompt(p, flow, node, state),
     nodeId: node.id,
-    spec: node.spec,
+    spec: renderSpec(node.spec, state.vars),
+    retomada: true,
   };
 }
 
@@ -144,6 +148,16 @@ interface Acc {
   effects: Effect[];
   nome?: string;
 }
+
+/** Instrução da IA também aceita {variaveis}. */
+const renderSpec = (
+  spec: FlowNode['spec'],
+  vars: Record<string, string>,
+): FlowNode['spec'] =>
+  spec?.objetivo ? { ...spec, objetivo: render(spec.objetivo, vars) } : spec;
+
+/** Desvios seguidos numa etapa antes de passar a um atendente. */
+export const MAX_DESVIOS = 4;
 
 const leave = (
   acc: Acc,
@@ -243,7 +257,7 @@ function enter(
         acc.replies.push({
           texto: render(node.texto, state.vars),
           nodeId: node.id,
-          spec: node.spec,
+          spec: renderSpec(node.spec, state.vars),
         });
         id = node.proximo;
         break;
@@ -289,7 +303,11 @@ function enter(
       case 'encaminhar': {
         const texto = node.texto ? render(node.texto, state.vars).trim() : '';
         if (texto)
-          acc.replies.push({ texto, nodeId: node.id, spec: node.spec });
+          acc.replies.push({
+            texto,
+            nodeId: node.id,
+            spec: renderSpec(node.spec, state.vars),
+          });
         acc.effects.push({
           type: 'handoff',
           comNome: !!state.vars['nome'],
@@ -304,7 +322,7 @@ function enter(
           acc.replies.push({
             texto: render(node.texto, state.vars),
             nodeId: node.id,
-            spec: node.spec,
+            spec: renderSpec(node.spec, state.vars),
           });
         return leave(acc, 'menu', flow.id);
       default: {
@@ -319,7 +337,7 @@ function enter(
         acc.replies.push({
           texto: prompt(p, flow, node, next),
           nodeId: node.id,
-          spec: node.spec,
+          spec: renderSpec(node.spec, state.vars),
         });
         return stay(next, acc);
       }
@@ -367,7 +385,7 @@ export function resumeTool(
     acc.replies.push({
       texto: prompt(p, flow, node, waiting),
       nodeId: node.id,
-      spec: node.spec,
+      spec: renderSpec(node.spec, state.vars),
     });
     return stay(waiting, acc);
   }
@@ -426,6 +444,50 @@ export function stepFlow(
   }
   if (input.kind === 'fora_escopo') return stay(state, acc); // quem avisa é o serviço (conta as advertências)
 
+  // Correção de um dado já informado: atualiza, confirma e segue na mesma etapa.
+  if (input.kind === 'corrigir') {
+    const valor = validarResposta('nome', input.valor);
+    if (valor && state.vars[input.variavel]) {
+      acc.nome = valor;
+      acc.replies.push({
+        texto: render(p.sistema.dado_corrigido, { nome: valor }),
+        sistema: 'dado_corrigido',
+      });
+      const novo = {
+        ...state,
+        vars: { ...state.vars, [input.variavel]: valor },
+        invalidos: 0,
+      };
+      const back = promptOf(p, novo);
+      if (back) acc.replies.push(back);
+      return stay(novo, acc);
+    }
+  }
+
+  // Desvio: acolhe, responde o que der e traz o cliente de volta à etapa. Só depois de insistir muito
+  // (sem avançar) é que passa a um atendente, para ninguém ficar preso numa conversa circular.
+  if (input.kind === 'duvida_sem_resposta' || input.kind === 'reapresentar') {
+    const desvios = (state.desvios ?? 0) + 1;
+    if (desvios >= (opts.maxDesvios ?? MAX_DESVIOS)) {
+      acc.effects.push({
+        type: 'handoff',
+        comNome: !!state.vars['nome'],
+        vars: state.vars,
+      });
+      return leave(acc, 'encaminhado', flow.id);
+    }
+    const key =
+      input.kind === 'duvida_sem_resposta'
+        ? 'duvida_sem_resposta'
+        : input.motivo === 'esclarecer'
+          ? 'esclarecer_etapa'
+          : 'retomar_conversa';
+    acc.replies.push({ texto: p.sistema[key], sistema: key });
+    const back = promptOf(p, state);
+    if (back) acc.replies.push(back);
+    return stay({ ...state, desvios, invalidos: 0 }, acc);
+  }
+
   const advance = (
     next: string | null | undefined,
     patch: Partial<FlowState>,
@@ -438,6 +500,7 @@ export function stepFlow(
         ...patch,
         historico: [...state.historico, node.id],
         invalidos: 0,
+        desvios: 0,
         dinamicas: null,
         escolhidos: null,
       },
@@ -552,7 +615,7 @@ export function stepFlow(
     }
   }
 
-  // Resposta inválida: a 1ª avisa, as seguintes ficam em silêncio e, no limite, passa a um humano.
+  // Resposta inválida: avisa sempre e, no limite, passa a um humano.
   const invalidos = state.invalidos + 1;
   if (invalidos >= opts.maxInvalid) {
     acc.effects.push({
@@ -562,9 +625,12 @@ export function stepFlow(
     });
     return leave(acc, 'encaminhado', flow.id);
   }
-  if (invalidos === 1) {
-    const key = invalidKey(node);
-    acc.replies.push({ texto: p.sistema[key], sistema: key });
+  const key = invalidKey(node);
+  acc.replies.push({ texto: p.sistema[key], sistema: key });
+  if (invalidos > 1) {
+    // Da 2ª vez em diante repete a pergunta: o cliente nunca fica sem saber o que fazer.
+    const back = promptOf(p, { ...state, invalidos });
+    if (back) acc.replies.push(back);
   }
   return stay({ ...state, invalidos }, acc, { invalido: true });
 }
@@ -601,7 +667,9 @@ export function parseText(
   if (!node) return { kind: 'invalido' };
   const pedeHumano =
     /\b(atendente|humano|pessoa de verdade|falar com algu[eé]m)\b/i.test(text);
-  if (pedeHumano && node.tipo !== 'pergunta') return { kind: 'humano' };
+  // Manipulação citando "atendente" não é pedido de atendimento: segue para o pré-filtro.
+  if (pedeHumano && node.tipo !== 'pergunta' && !prefilter(text).blocked)
+    return { kind: 'humano' };
 
   const single = /^(\d{1,2})[.)]?$/.exec(text);
   switch (node.tipo) {

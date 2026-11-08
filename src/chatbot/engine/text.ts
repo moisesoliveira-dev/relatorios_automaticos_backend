@@ -4,6 +4,8 @@
  * Tudo puro, sem NestJS.
  */
 
+import { prefilter } from '../domain/scope.prefilter';
+
 /** Remove formatação do WhatsApp (*negrito*, _itálico_) e espaços repetidos. */
 export function normalizeText(raw: string | null | undefined): string {
   return (raw ?? '')
@@ -38,6 +40,29 @@ const NOT_A_NAME = new Set([
   'tenho',
   'preciso',
   'orcamento',
+  'entendi',
+  'prefiro',
+  'dizer',
+  'informar',
+  'talvez',
+  'depois',
+  'quanto',
+  'custa',
+  'tempo',
+  'pronto',
+  'voces',
+  'vocês',
+  'demoram',
+  'responder',
+  'minuto',
+  'obrigado',
+  'obrigada',
+  'onde',
+  'como',
+  'qual',
+  'quando',
+  'porque',
+  'ajuda',
   'orçamento',
   'projeto',
   'planta',
@@ -65,9 +90,16 @@ export function validarNome(raw: string | null | undefined): string | null {
     .trim();
   if (text.length < 2 || text.length > 60) return null;
   if (NOT_A_NAME.has(text.toLowerCase())) return null;
+  // Frase de manipulação não é nome (o nome vai para o Drive, o funil e as mensagens do bot)
+  if (prefilter(text).blocked) return null;
   if (!/^[\p{L}][\p{L}\p{M}'’.\- ]*$/u.test(text)) return null;
   const words = text.split(' ').filter(Boolean);
   if (words.length > 6) return null;
+  // Letras aleatórias ("asdkjh"): nenhum nome tem 5 consoantes seguidas ou palavra sem vogal.
+  if (words.some((w) => /[bcdfghjklmnpqrstvwxz]{5}/i.test(strip(w))))
+    return null;
+  if (words.some((w) => w.length > 2 && !/[aeiouy]/i.test(strip(w))))
+    return null;
   if (
     words.some(
       (w) =>

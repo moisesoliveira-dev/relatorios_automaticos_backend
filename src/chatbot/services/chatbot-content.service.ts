@@ -150,12 +150,13 @@ export const NODE_TYPES_INFO: Array<{
 ];
 
 const asText = (v: unknown): string =>
-  v === null || v === undefined ? '' : typeof v === 'object' ? '' : String(v as string | number | boolean);
+  v === null || v === undefined
+    ? ''
+    : typeof v === 'object'
+      ? ''
+      : String(v as string | number | boolean);
 const str = (v: unknown, max: number) =>
-  asText(v)
-    .replace(/\r/g, '')
-    .trim()
-    .slice(0, max);
+  asText(v).replace(/\r/g, '').trim().slice(0, max);
 const optStr = (v: unknown, max: number) =>
   v === undefined || v === null || v === '' ? undefined : str(v, max);
 const idOf = (v: unknown, fallback: string) =>
@@ -538,8 +539,10 @@ export class ChatbotContentService implements OnModuleInit {
           )
           .filter((p) => p.length)
       : undefined;
+    const modo = s['modo'];
     const out: NodeSpec = {
-      objetivo: optStr(s['objetivo'], 300),
+      modo: modo === 'obrigatorio' || modo === 'instrucao' ? modo : undefined,
+      objetivo: optStr(s['objetivo'], 600),
       pontos,
       saudacao: s['saudacao'] === true || undefined,
       usaNome: s['usaNome'] === true || undefined,

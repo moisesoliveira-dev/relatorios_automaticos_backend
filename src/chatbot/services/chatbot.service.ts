@@ -547,14 +547,24 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       hasFile,
     );
     if (input === null) input = await this.interpretWithAi(conv, text);
+    else if (input.kind === 'valor' && this.conferirComIa(conv, text)) {
+      // Texto que "passa" na validação mas pode não ser resposta ("Não entendi" como nome, pergunta como texto).
+      const ai = await this.interpretWithAi(conv, text);
+      // Sem veredito claro da IA, vale o que o cliente escreveu (já passou na validação).
+      const manter = ai.kind === 'invalido';
+      if (!manter) input = ai;
+    }
     if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
 
     if (input.kind === 'fora_escopo')
       return this.offTopic(conv, input.severidade);
 
+    const antes = conv.flow.nodeId;
     const r = stepFlow(runtimeContent.published, conv.flow, input, {
       maxInvalid: this.appConfig.chatbot.maxInvalid,
     });
+    // Avançou: as advertências de assunto fora ficam para trás (quem voltou ao trilho não é punido).
+    if (r.state && r.state.nodeId !== antes) conv.offTopicCount = 0;
     await this.apply(conv, r);
   }
 
@@ -779,7 +789,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     if ((conv.offTopicCount ?? 0) >= this.appConfig.chatbot.maxOffTopic)
       return { kind: 'fora_escopo', severidade: 'leve' };
     if (!this.agents.available) return { kind: 'invalido' };
-    if (!this.consumeAiCall(conv)) return { kind: 'invalido' };
+    if (!this.consumeAiCall(conv)) return { kind: 'invalido', falhaIa: true };
 
     const p = runtimeContent.published;
     const state = conv.flow!;
@@ -798,6 +808,29 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       kb,
       guidanceOf(flow),
     );
+  }
+
+  private pedeNome(conv: ChatbotConversation): boolean {
+    const node = conv.flow
+      ? currentNode(runtimeContent.published, conv.flow)
+      : null;
+    return (
+      node?.tipo === 'pergunta' &&
+      (node.validacao ?? (node.variavel === 'nome' ? 'nome' : 'texto')) ===
+        'nome'
+    );
+  }
+
+  /** Nome: sempre confere com a IA. Texto livre: só quando parece pergunta. */
+  private conferirComIa(conv: ChatbotConversation, text: string): boolean {
+    if (!this.agents.available) return false;
+    if ((conv.offTopicCount ?? 0) >= this.appConfig.chatbot.maxOffTopic)
+      return false;
+    const node = conv.flow
+      ? currentNode(runtimeContent.published, conv.flow)
+      : null;
+    if (node?.tipo !== 'pergunta') return false;
+    return this.pedeNome(conv) || text.includes('?');
   }
 
   private rotulosDe(node: FlowNode | null, state: FlowState): string[] {

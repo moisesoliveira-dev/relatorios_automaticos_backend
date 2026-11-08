@@ -34,6 +34,8 @@ export interface MessageSpec {
   manter?: string[];
   /** A mensagem original faz uma pergunta: a nova também precisa perguntar. */
   perguntar?: boolean;
+  /** obrigatorio: o texto vai literal; instrucao: a IA escreve só a partir do objetivo. */
+  modo?: 'ajustar' | 'obrigatorio' | 'instrucao';
 }
 
 const p = (...anyOf: string[]): Point => ({ anyOf });
@@ -208,6 +210,33 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
       p('ok', 'palavra'),
     ],
     maxChars: 260,
+  },
+  duvida_sem_resposta: {
+    objetivo:
+      'Dizer com simpatia que essa informação quem confirma é o projetista, que fala com o cliente ao final do atendimento, e convidar a continuar. Não dê nenhuma informação sobre o assunto perguntado.',
+    pontos: [
+      p('projetista', 'atendente', 'especialista'),
+      p('continuar', 'seguir', 'prosseguir'),
+    ],
+    maxChars: 220,
+  },
+  dado_corrigido: {
+    objetivo: 'Confirmar em poucas palavras que o nome foi corrigido.',
+    pontos: [p('corrigi', 'corrigido', 'anotado', 'atualizei', 'certo')],
+    nomeObrigatorio: true,
+    maxChars: 90,
+  },
+  retomar_conversa: {
+    objetivo:
+      'Acolher em poucas palavras o que o cliente comentou e convidar a continuar o atendimento de onde parou.',
+    pontos: [p('continuar', 'seguir', 'prosseguir', 'voltar', 'retomar')],
+    maxChars: 120,
+  },
+  esclarecer_etapa: {
+    objetivo:
+      'Dizer em poucas palavras, com simpatia, que vai explicar de novo o que precisa do cliente.',
+    pontos: [p('explicar', 'repetir', 'de novo', 'novamente', 'detalhar')],
+    maxChars: 90,
   },
   fora_escopo: {
     objetivo:

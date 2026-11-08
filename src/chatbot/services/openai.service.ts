@@ -21,6 +21,16 @@ export interface AgentCall {
 }
 
 /**
+ * Tira meio-emoji (surrogate sem par), que surge ao cortar um texto no meio de um emoji: a API
+ * recusa o JSON inteiro por causa dele.
+ */
+export const textoValido = (s: string): string =>
+  s.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    '',
+  );
+
+/**
  * Cliente fino da OpenAI usado por todos os agentes: timeout, limite de concorrência,
  * disjuntor (circuit breaker) e saída SEMPRE estruturada via chamada de função forçada.
  * Nunca registra o texto do cliente nos logs.
@@ -81,8 +91,13 @@ export class OpenAiService {
 
   /** Executa um agente e devolve os argumentos brutos da função (ainda NÃO confiáveis), ou null. */
   async callTool<T = unknown>(call: AgentCall): Promise<T | null> {
-    if (!this.enabled || this.breakerOpen || this.inflight >= this.maxInflight)
-      return null;
+    if (!this.enabled || this.breakerOpen) return null;
+    // Pico de clientes: espera uma vaga em vez de responder "opção inválida" a quem falou algo válido.
+    const limite = Date.now() + 4000;
+    while (this.inflight >= this.maxInflight) {
+      if (Date.now() > limite) return null;
+      await new Promise((r) => setTimeout(r, 50));
+    }
 
     const { temperature } = this.appConfig.openai;
     const model = this.modelFor(call.agent);
@@ -95,8 +110,8 @@ export class OpenAiService {
           ...(temperature !== undefined ? { temperature } : {}),
           max_completion_tokens: call.maxTokens ?? 250,
           messages: [
-            { role: 'system', content: call.system },
-            { role: 'user', content: call.user },
+            { role: 'system', content: textoValido(call.system) },
+            { role: 'user', content: textoValido(call.user) },
           ],
           tools: [
             {
@@ -127,7 +142,10 @@ export class OpenAiService {
       if (!args) return null;
       return JSON.parse(args) as T;
     } catch (error) {
-      this.recordFailure();
+      // Pedido recusado por ele mesmo (400/404/422) não é a OpenAI fora do ar: não pausa a IA de todos.
+      const status = (error as { status?: number })?.status;
+      if (!status || status >= 500 || [401, 403, 408, 429].includes(status))
+        this.recordFailure();
       this.logger.warn(
         `agent=${call.agent} falhou (${error?.status ?? 'rede'}): ${(error as Error).message?.slice(0, 120)}`,
       );

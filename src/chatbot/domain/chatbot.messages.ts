@@ -65,6 +65,12 @@ export const MESSAGES = {
     '😊 Ops! Por favor, envie uma das opções que pedimos nesta etapa.\n\nVocê está nos momentos finais antes de falar com o *atendimento humano* 🙋',
   invalida_nome:
     '😊 Ops! Por favor, envie um nome válido.\n\nFaltam poucas etapas para lhe *redirecionar para o atendente.*',
+  duvida_sem_resposta:
+    'Essa informação quem confirma certinho é o nosso projetista, que vai falar com você ao final deste atendimento. 😊\n\nVamos continuar de onde paramos?',
+  dado_corrigido: 'Anotado, {nome}! 😊 Já corrigi aqui.',
+  retomar_conversa:
+    'Combinado! 😊 Quando puder, vamos continuar de onde paramos:',
+  esclarecer_etapa: 'Sem problemas, vou explicar de novo! 😊',
   fora_escopo:
     '😊 Eu só consigo ajudar com assuntos da Cinthia Moreira Modulados: projetos, orçamentos, medições e móveis planejados.\n\nVamos continuar de onde paramos?',
   fora_escopo_limite:

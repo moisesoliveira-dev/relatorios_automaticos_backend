@@ -4,11 +4,14 @@
  * é dígito e comparamos só os 8 últimos, que identificam a linha com ou sem 55, DDD e 9º dígito.
  */
 
+/** Só texto e número viram string; o resto conta como vazio. */
+function texto(raw: unknown): string {
+  return typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
+}
+
 /** Dígitos do que veio, sem pontuação, espaços, "@c.us" ou outros textos. */
 export function onlyDigits(raw: unknown): string {
-  return String(raw ?? '')
-    .replace(/@.*$/, '')
-    .replace(/\D/g, '');
+  return texto(raw).replace(/@.*$/, '').replace(/\D/g, '');
 }
 
 /** Chave de comparação: os 8 últimos dígitos. Null se tiver menos de 8. */
@@ -25,7 +28,7 @@ export function canonicalNumber(raw: unknown): string | null {
 
 /** Lista guardada ("5592991234567,92988887777") → números. */
 export function parseNumberList(raw: unknown): string[] {
-  return String(raw ?? '')
+  return texto(raw)
     .split(/[\s,;]+/)
     .map((s) => canonicalNumber(s))
     .filter((n): n is string => !!n);

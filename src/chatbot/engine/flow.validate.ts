@@ -106,6 +106,23 @@ export function contextos(
 }
 
 /** Devolve a lista de problemas do fluxo (vazia = válido). Não altera o fluxo. */
+/** Fluxos que chegam a este, direta ou indiretamente, por "Ir para outro fluxo". */
+export function fluxosAnteriores(id: string, todos: FlowDoc[]): Set<string> {
+  const out = new Set<string>();
+  const fila = [id];
+  while (fila.length) {
+    const alvo = fila.pop()!;
+    for (const f of todos) {
+      if (f.id === id || out.has(f.id)) continue;
+      if (f.nos.some((n) => n.tipo === 'ir_para' && n.fluxo === alvo)) {
+        out.add(f.id);
+        fila.push(f.id);
+      }
+    }
+  }
+  return out;
+}
+
 export function checkFlow(
   flow: FlowDoc,
   tools: ToolCatalog,
@@ -144,8 +161,10 @@ export function checkFlow(
   const proprias = varsDe(flow);
   const vars = new Set<string>(['nome', ...proprias]);
   const externas = new Set<string>();
+  // Só valem as variáveis de fluxos que realmente levam a este (por "Ir para outro fluxo").
+  const anteriores = fluxosAnteriores(flow.id, todos);
   for (const f of todos)
-    if (f.id !== flow.id)
+    if (anteriores.has(f.id))
       for (const v of varsDe(f)) {
         vars.add(v);
         externas.add(v);
@@ -198,10 +217,12 @@ export function checkFlow(
     if (needsText && !texto) e.push(`${at(n)}: escreva o texto da mensagem.`);
     if (texto.length > LIMITS.texto)
       e.push(`${at(n)}: o texto passa de ${LIMITS.texto} caracteres.`);
-    for (const v of placeholdersOf(texto))
+    if (n.spec?.modo === 'instrucao' && !n.spec.objetivo?.trim())
+      e.push(`${at(n)}: escreva a instrução para a IA.`);
+    for (const v of placeholdersOf(`${texto} ${n.spec?.objetivo ?? ''}`))
       if (!vars.has(v))
         e.push(
-          `${at(n)}: {${v}} não é uma variável deste fluxo (crie uma pergunta com esse nome).`,
+          `${at(n)}: {${v}} não existe neste fluxo nem nos fluxos que levam até ele (crie uma pergunta com esse nome ou ligue o fluxo com "Ir para outro fluxo").`,
         );
 
     switch (n.tipo) {

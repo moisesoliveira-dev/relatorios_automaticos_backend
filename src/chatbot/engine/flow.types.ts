@@ -25,7 +25,16 @@ export type NodeType =
   | 'fim';
 
 /** O que a mensagem precisa comunicar: o Redator (IA) pode mudar o jeito de dizer, nunca o conteúdo. */
+/**
+ * Como a IA trata o texto da etapa:
+ *  - ajustar: reescreve o texto com voz natural (padrão);
+ *  - obrigatorio: o texto vai exatamente como está, a IA só escreve em volta;
+ *  - instrucao: a IA escreve a partir do objetivo; o texto só é usado se ela estiver fora do ar.
+ */
+export type ModoMensagem = 'ajustar' | 'obrigatorio' | 'instrucao';
+
 export interface NodeSpec {
+  modo?: ModoMensagem;
   objetivo?: string;
   /** Cada item é uma lista de palavras alternativas; ao menos uma precisa aparecer no texto final. */
   pontos?: string[][];
@@ -195,6 +204,10 @@ export type SystemMessageKey =
   | 'invalida_nome'
   | 'invalida_arquivos'
   | 'invalida_lista'
+  | 'duvida_sem_resposta'
+  | 'dado_corrigido'
+  | 'retomar_conversa'
+  | 'esclarecer_etapa'
   | 'fora_escopo'
   | 'fora_escopo_limite'
   | 'audio_nao_suportado'
@@ -229,6 +242,8 @@ export interface FlowState {
   vars: Record<string, string>;
   arquivos: number;
   invalidos: number;
+  /** Desvios seguidos nesta etapa (conversa, "não entendi", dúvida sem resposta). */
+  desvios?: number;
   /** Opções geradas por uma ferramenta de escolha (ex.: horários livres). */
   dinamicas?: Array<{ rotulo: string; valor: string }> | null;
   /** Itens já escolhidos numa etapa "multipla" (índices 1..n). */
@@ -247,7 +262,14 @@ export type FlowInput =
   | { kind: 'humano' }
   | { kind: 'duvida'; resposta: string }
   | { kind: 'fora_escopo'; severidade: 'leve' | 'grave' }
-  | { kind: 'invalido' };
+  /** A IA não soube responder à dúvida: avisa que o projetista confirma e retoma a etapa. */
+  /** O cliente corrigiu um dado que já tinha dado (ex.: o nome), estando em outra etapa. */
+  | { kind: 'corrigir'; variavel: 'nome'; valor: string }
+  | { kind: 'duvida_sem_resposta' }
+  /** Cumprimento, comentário ou "não entendi": acolhe e reapresenta a etapa. */
+  | { kind: 'reapresentar'; motivo: 'conversa' | 'esclarecer' }
+  /** falhaIa = a IA não respondeu (rede, teto, disjuntor), não que a resposta seja ruim. */
+  | { kind: 'invalido'; falhaIa?: boolean };
 
 /** Texto a enviar, com o que o Redator precisa saber para reescrevê-lo com segurança. */
 export interface Reply {
@@ -257,6 +279,8 @@ export interface Reply {
   spec?: NodeSpec;
   /** Chave da mensagem do sistema, quando for uma. */
   sistema?: SystemMessageKey;
+  /** A etapa está sendo repetida (depois de um desvio): sem cumprimentar nem se apresentar de novo. */
+  retomada?: boolean;
 }
 
 export type Effect =

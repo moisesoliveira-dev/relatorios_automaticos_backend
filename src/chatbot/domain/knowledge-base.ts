@@ -31,6 +31,13 @@ export const KNOWLEDGE_BASE: KbEntry[] = [
   {
     id: 'bot',
     keywords: [
+      'quem',
+      'voce',
+      'robo',
+      'robozinho',
+      'bot',
+      'virtual',
+      'ia',
       'robo',
       'bot',
       'atendente',
@@ -41,7 +48,7 @@ export const KNOWLEDGE_BASE: KbEntry[] = [
       'ia',
       'inteligencia',
     ],
-    text: "Quem atende por aqui é a Vera D'Or, atendente virtual da Cinthia Moreira Modulados. Depois da triagem, o cliente é encaminhado a um atendente humano (projetista).",
+    text: "Quem atende por aqui é a Vera D'Or, atendente virtual (assistente automática, um robô) da Cinthia Moreira Modulados. Depois da triagem, o cliente é encaminhado a um atendente humano (projetista).",
   },
   {
     id: 'endereco',
@@ -63,7 +70,20 @@ export const KNOWLEDGE_BASE: KbEntry[] = [
   },
   {
     id: 'telefone',
-    keywords: ['telefone', 'contato', 'ligar', 'whatsapp', 'numero', 'falar'],
+    keywords: [
+      'telefone',
+      'fone',
+      'ligar',
+      'contato',
+      'whatsapp',
+      'numero',
+      'telefone',
+      'contato',
+      'ligar',
+      'whatsapp',
+      'numero',
+      'falar',
+    ],
     text: 'O telefone da loja é (92) 99455-1471.',
   },
   {
