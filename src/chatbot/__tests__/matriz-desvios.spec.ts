@@ -49,8 +49,25 @@ export const DESVIOS: Array<[string, string]> = [
 
 suite('matriz de desvios (OpenAI real)', () => {
   it('roda a matriz', async () => {
-    const w: World = build({ live: { apiKey: KEY! } });
-    const casos = ETAPAS.flatMap((e) => DESVIOS.map((d) => ({ e, d })));
+    const w: World = build({
+      live: {
+        apiKey: KEY!,
+        writer: process.env.ATENDENTE === '1',
+        atendente: process.env.ATENDENTE === '1',
+      },
+    });
+    // A atendente não confirma o nome: sem essa etapa e sem o "1" que respondia a ela.
+    const etapas: typeof ETAPAS =
+      process.env.ATENDENTE === '1'
+        ? ETAPAS.filter(([n]) => n !== 'confirma').map(([n, p, a]) => [
+            n,
+            p.filter((_, i) => !(i === 2 && /[A-Z]/.test(String(p[1])))),
+            a,
+          ])
+        : ETAPAS;
+    const casos = etapas
+      .flatMap((e) => DESVIOS.map((d) => ({ e, d })))
+      .filter(({ d }) => !process.env.DESVIO || d[0] === process.env.DESVIO);
     const saida: any[] = [];
     let c = 5000;
     const rodar = async ({ e, d }: (typeof casos)[number]) => {

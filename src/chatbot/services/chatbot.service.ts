@@ -24,6 +24,7 @@ import {
   entryFlow,
   parseText,
   promptOf,
+  pularRespondidas,
   recognitionFlow,
   resumeTool,
   startFlow,
@@ -86,6 +87,10 @@ const NON_FILE_MEDIA = new Set([
 /** Assinatura de atendente humano no texto: "*Nome:*\n..." */
 const AGENT_SIGNATURE = /\*\s*[^*]+:\s*\*\s*\n/;
 const MAX_PROCESSED_IDS = 20;
+/** Mensagens da conversa que a atendente enxerga. */
+const MAX_HISTORY = 16;
+const SO_CUMPRIMENTO =
+  /^\W*(oi+|ol[aá]|opa|e a[ií]|bom dia|boa tarde|boa noite|tudo bem|tudo bom|\s|[!,.?])*$/i;
 const MAX_TOOL_CHAIN = 12;
 
 export function parseWebhook(payload: any): Inbound | null {
@@ -390,6 +395,10 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       contactId: conv.contactId,
       nome: conv.nome,
       history: conv.history ?? [],
+      pendente: conv.flow
+        ? promptOf(runtimeContent.published, conv.flow)
+        : null,
+      dados: conv.flow?.vars ?? {},
     };
   }
 
@@ -409,13 +418,14 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private pushHistory(conv: ChatbotConversation, turn: HistoryTurn): void {
-    conv.history = [...(conv.history ?? []), turn].slice(-8);
+    conv.history = [...(conv.history ?? []), turn].slice(-MAX_HISTORY);
   }
 
   /** Começa (ou recomeça) pelo fluxo de início. */
   private async restart(
     conv: ChatbotConversation,
     prefix: Reply[] = [],
+    intencao?: string,
   ): Promise<void> {
     const entry = entryFlow(runtimeContent.published);
     conv.flow = null;
@@ -432,7 +442,40 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       entry.id,
       conv.nome ? { nome: conv.nome } : {},
     );
-    await this.apply(conv, { ...r, replies: [...prefix, ...r.replies] });
+    const direto = await this.seguirIntencao(conv, r, intencao);
+    await this.apply(
+      conv,
+      direto
+        ? { ...direto, replies: [...prefix, ...direto.replies] }
+        : { ...r, replies: [...prefix, ...r.replies] },
+    );
+  }
+
+  /**
+   * Modo atendente: quem já chega dizendo o que quer ("queria saber o endereço") não passa pelo menu.
+   * Só vale se a mensagem escolhe um caminho ou traz uma dúvida; o resto segue o início normal.
+   */
+  private async seguirIntencao(
+    conv: ChatbotConversation,
+    inicio: FlowResult,
+    intencao?: string,
+  ): Promise<FlowResult | null> {
+    const texto = intencao?.trim();
+    if (
+      !texto ||
+      SO_CUMPRIMENTO.test(texto) ||
+      !this.humanizer.atendenteAtivo ||
+      !inicio.state ||
+      inicio.effects.length
+    )
+      return null;
+    conv.flow = inicio.state;
+    const input = await this.interpretWithAi(conv, texto);
+    if (!['opcao', 'duvida', 'duvida_sem_resposta'].includes(input.kind))
+      return null;
+    return stepFlow(runtimeContent.published, inicio.state, input, {
+      maxInvalid: this.appConfig.chatbot.maxInvalid,
+    });
   }
 
   async process(batch: Batch): Promise<void> {
@@ -462,7 +505,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       // O Redator usa a 1ª mensagem do cliente ("Oi", "Boa tarde"...) para responder com naturalidade.
       if (msg.body.trim())
         this.pushHistory(conv, { role: 'cliente', text: clip(msg.body) });
-      return this.restart(conv);
+      return this.restart(conv, [], msg.body);
     }
 
     conv.numero = msg.numero ?? conv.numero;
@@ -535,7 +578,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     // 6) Sem fluxo (conversa antiga, fluxo despublicado...): começa do início
     if (!conv.flow || !currentNode(runtimeContent.published, conv.flow)) {
       if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
-      return this.restart(conv);
+      return this.restart(conv, [], text);
     }
 
     // 7) Interpretação → motor
@@ -555,9 +598,15 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       if (!manter) input = ai;
     }
     if (text) this.pushHistory(conv, { role: 'cliente', text: clip(text) });
+    else if (hasFile)
+      this.pushHistory(conv, { role: 'cliente', text: '[enviou um arquivo]' });
 
     if (input.kind === 'fora_escopo')
       return this.offTopic(conv, input.severidade);
+
+    // "Na verdade quero saber o endereço": recomeça e já atende o que ele pediu.
+    if (input.kind === 'recomecar' && text.split(/\s+/).length >= 4)
+      return this.restart(conv, [], text);
 
     const antes = conv.flow.nodeId;
     const r = stepFlow(runtimeContent.published, conv.flow, input, {
@@ -611,7 +660,12 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     result: FlowResult,
   ): Promise<void> {
     let r = result;
+    const atendente = this.humanizer.atendenteAtivo;
     for (let guard = 0; guard < MAX_TOOL_CHAIN; guard++) {
+      if (atendente)
+        r = pularRespondidas(runtimeContent.published, r, {
+          maxInvalid: this.appConfig.chatbot.maxInvalid,
+        });
       if (r.nome) conv.nome = r.nome;
       if (r.state?.vars['trilha'])
         conv.trilha = r.state.vars['trilha'].slice(0, 16);
@@ -619,6 +673,9 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
       conv.invalidCount = r.state?.invalidos ?? 0;
       conv.arquivos = r.state?.arquivos ?? conv.arquivos;
       await this.repo.save(conv); // persiste ANTES de enviar: um reenvio do webhook não repete a resposta
+      // Terminou o assunto e volta ao início: "mais alguma coisa?" vai na mesma mensagem.
+      if (atendente && !r.state && r.saiu === 'menu' && !r.effects.length)
+        return this.restart(conv, r.replies);
       await this.send(conv, r.replies, r.flowId);
 
       const tool = r.effects.find(

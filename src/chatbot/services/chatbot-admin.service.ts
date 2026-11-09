@@ -19,6 +19,7 @@ import {
   entryFlow,
   parseText,
   promptOf,
+  pularRespondidas,
   resumeTool,
   startFlow,
   stepFlow,
@@ -32,7 +33,10 @@ import {
   FlowState,
   Reply,
 } from '../engine/flow.types';
-import { ChatbotConversation } from '../entities/chatbot-conversation.entity';
+import {
+  HistoryTurn,
+  ChatbotConversation,
+} from '../entities/chatbot-conversation.entity';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import { ChatbotService } from './chatbot.service';
 import { ToolRegistry } from '../tools/tool.registry';
@@ -64,6 +68,8 @@ export interface SimState {
   nome: string | null;
   humano: boolean;
   offTopic: number;
+  /** O que já foi dito no teste (a atendente lembra da conversa). */
+  conversa?: HistoryTurn[];
 }
 
 const asInt = (v: unknown, max = 1000) =>
@@ -339,8 +345,8 @@ export class ChatbotAdminService {
         invalidos: asInt(f['invalidos']),
         dinamicas: din
           ? din.map((o) => ({
-              rotulo: (asStr(o['rotulo'], 80) ?? ''),
-              valor: (asStr(o['valor'], 120) ?? ''),
+              rotulo: asStr(o['rotulo'], 80) ?? '',
+              valor: asStr(o['valor'], 120) ?? '',
             }))
           : null,
         escolhidos: Array.isArray(f['escolhidos'])
@@ -353,6 +359,15 @@ export class ChatbotAdminService {
       nome: asStr(raw['nome'], 60),
       humano: raw['humano'] === true,
       offTopic: asInt(raw['offTopic']),
+      conversa: Array.isArray(raw['conversa'])
+        ? (raw['conversa'] as Array<Record<string, unknown>>)
+            .filter((t) => t?.role === 'cliente' || t?.role === 'bot')
+            .slice(-16)
+            .map((t) => ({
+              role: t.role as HistoryTurn['role'],
+              text: asStr(t.text, 600) ?? '',
+            }))
+        : [],
     };
   }
 
@@ -414,6 +429,10 @@ export class ChatbotAdminService {
       );
     }
 
+    sim.conversa = [
+      ...(sim.conversa ?? []),
+      { role: 'cliente' as const, text: texto.slice(0, 600) },
+    ].slice(-16);
     let origem: 'regras' | 'ia' | 'nenhuma' = 'regras';
     let entrada: FlowInput | null = parseText(p, sim.flow, texto, false);
     if (entrada === null) {
@@ -542,13 +561,24 @@ export class ChatbotAdminService {
   }
 
   private async resposta(
-    sim: SimState,
-    r: FlowResult,
+    simIn: SimState,
+    rIn: FlowResult,
     efeitos: string[],
     origem: 'regras' | 'ia' | 'nenhuma',
     usarIA: boolean,
   ) {
     const p = runtimeContent.published;
+    // Como no atendimento real: nome já conhecido não é perguntado de novo.
+    const r =
+      usarIA && this.humanizer.atendenteAtivo
+        ? this.runTools(
+            pularRespondidas(p, rIn, {
+              maxInvalid: this.appConfig.chatbot.maxInvalid,
+            }),
+            efeitos,
+          )
+        : rIn;
+    const sim: SimState = r === rIn ? simIn : { ...simIn, flow: r.state };
     const hand = r.effects.find(
       (e): e is Extract<Effect, { type: 'handoff' }> => e.type === 'handoff',
     );
@@ -589,13 +619,24 @@ export class ChatbotAdminService {
     let reescrita = false;
     if (usarIA && this.humanizer.enabled && replies.length) {
       mensagens = await this.humanizer.compose(
-        { contactId: -1, nome: state.nome, history: [] },
+        {
+          contactId: -1,
+          nome: r.nome ?? state.nome,
+          history: state.conversa ?? [],
+          pendente: state.flow ? promptOf(p, state.flow) : null,
+          dados: state.flow?.vars ?? {},
+        },
         replies,
         r.flowId,
       );
       reescrita =
         mensagens.join('\n') !== replies.map((x) => x.texto).join('\n');
     }
+
+    state.conversa = [
+      ...(state.conversa ?? []),
+      { role: 'bot' as const, text: mensagens.join(' ').slice(0, 600) },
+    ].slice(-16);
 
     const flow = state.flow ? fluxoPorId(state.flow.flowId) : undefined;
     const idx =

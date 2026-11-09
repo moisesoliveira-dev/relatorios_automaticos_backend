@@ -25,7 +25,13 @@ suite('jornadas com a OpenAI real', () => {
     return c;
   };
   beforeEach(() => {
-    w = build({ live: { apiKey: KEY! } });
+    w = build({
+      live: {
+        apiKey: KEY!,
+        writer: process.env.ATENDENTE === '1',
+        atendente: process.env.ATENDENTE === '1',
+      },
+    });
   });
   afterAll(() => {
     // eslint-disable-next-line no-console
@@ -198,7 +204,9 @@ suite('jornadas com a OpenAI real', () => {
       `nome: ${texto}`,
       `guardou "${nome}" em ${w.conv(c).flow?.nodeId}`,
     );
-    expect(w.conv(c).flow?.nodeId).toBe('confirma');
+    expect(w.conv(c).flow?.nodeId).toBe(
+      process.env.ATENDENTE === '1' ? 'arquivos' : 'confirma',
+    );
   });
 
   it('nome que é um pedido ("quero um orçamento") não vira nome', async () => {

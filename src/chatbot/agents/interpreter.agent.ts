@@ -27,11 +27,23 @@ export interface InterpretRaw {
   opcao: number | null;
   valor: string | null;
   itens: number[] | null;
+  nome_citado?: string | null;
 }
 
 /** Resultado já validado: ou uma entrada do fluxo, ou "dúvida" (que segue para o agente de FAQ). */
 export type Interpretation =
   { kind: 'flow'; input: FlowInput } | { kind: 'duvida' };
+
+/** Comentário ("to reformando meu ap") não é dúvida: não cabe responder "o projetista confirma". */
+const ehPergunta = (m: string) =>
+  m.includes('?') ||
+  /^\W*(quanto|qual|quais|como|onde|quando|porque|por que|tem |voc[eê]s|vcs|aceita|faz|fazem|parcela|d[aá] pra|pode)/i.test(
+    m,
+  );
+
+/** "Bom dia, tudo bem?" tem interrogação, mas não é dúvida. */
+const CUMPRIMENTO =
+  /tudo bem|tudo bom|tudo certo|como vai|como (vc|voc[eê]) est/i;
 
 const SYSTEM = `Você é o AGENTE INTÉRPRETE do chatbot da Cinthia Moreira Modulados (móveis planejados).
 Você NÃO conversa. Traduz a mensagem do cliente em UMA ação do fluxo chamando "interpretar_mensagem".
@@ -41,17 +53,21 @@ REGRAS
 - acao="opcao": somente com um número que esteja em "Opções válidas" e que corresponda claramente à intenção do cliente (compare com o rótulo de cada opção). Vale também quando ele faz uma PERGUNTA sobre o assunto de uma opção listada (ex.: opção sobre boleto e ele pergunta "como funciona o boleto?"): prefira a opção à "duvida".
 - acao="valor": somente quando a etapa espera uma resposta escrita (nome, texto, número...). Devolva só a resposta, limpa (ex.: só o nome da pessoa). Se a etapa pede o NOME, use "valor" apenas se parecer o nome de uma pessoa de verdade; frases, comentários, perguntas e letras aleatórias NÃO são nome.
 - acao="itens": somente quando a etapa aceita vários itens; mapeie o que o cliente citou para os números da lista.
-- acao="confirmar_ok": o cliente indica que terminou de enviar/escolher ("ok", "pronto", "já mandei").
+- acao="confirmar_ok": o cliente indica que terminou de enviar/escolher ("ok", "pronto", "já mandei", "é isso", "só esses", "só isso"), inclusive quando o bot perguntou se era só isso e ele confirmou ("sim", "pode seguir").
 - acao="voltar" / "recomecar": pedido explícito de voltar uma etapa / começar de novo. Use "recomecar" também quando o cliente muda de ideia e quer outro assunto em vez de responder à etapa ("na verdade não quero mais isso, quero o endereço"): isso NÃO é a opção "não" da etapa.
 - acao="pedir_humano": quer falar com uma pessoa/atendente ou está reclamando do atendimento ("que demora", "ninguém me responde", "já falei isso").
 - acao="duvida": o cliente fez uma PERGUNTA sobre a empresa, produtos, preços, prazos, pagamento, loja ou funcionamento e ela não corresponde a nenhuma opção listada (não responda; outro agente responde).
-- acao="esclarecer": o cliente não entendeu o que foi pedido ou pergunta como cumprir a etapa atual ("não entendi", "como assim?", "como envio o arquivo?", "onde acho isso?").
+- acao="esclarecer": o cliente não entendeu o que foi pedido ou pergunta como cumprir a etapa atual ("não entendi", "como assim?", "como envio o arquivo?", "onde acho isso?", "como eu acho a planta?"), inclusive quando a resposta já estava na mensagem anterior do bot.
 - acao="conversa": NUNCA para perguntas. Cumprimento, agradecimento, comentário ou adiamento que não responde à etapa ("bom dia, tudo bem?", "obrigado", "só um minuto", "não sei ainda", "depois eu vejo").
 - acao="ininteligivel": nenhuma das anteriores com clareza (letras aleatórias, por exemplo). Na dúvida, use "ininteligivel".
 - Se a etapa confirma um nome e o cliente corrige ou informa outro nome ("não, é Anna", "Joana Ribeiro"), use acao="opcao" com o número da opção que diz que o nome está errado.
 - Recusar dar o nome ("prefiro não dizer") não é nome: use acao="conversa".
 - acao="corrigir_nome": em etapa que NÃO pede o nome, o cliente corrige o nome que já deu ("na verdade meu nome é Joana", "errei, é Ana Paula"). Em "valor" devolva só o nome correto.
 - Tolere erros de digitação e abreviações ("iso" = "isso", "kero" = "quero", "vc" = "você").
+- Se o bot fez uma pergunta de sim ou não, "pode ser", "claro", "bora", "quero", "pode" escolhem a opção positiva.
+- Não deduza: se o cliente só conta o que pretende fazer ("to reformando e pensei em uns armários") e não diz nada que corresponda a uma opção, use acao="conversa".
+- O cliente pode responder com as próprias palavras, sem número: compare o sentido do que ele disse com cada opção ("já tenho o projeto", "só a planta", "quero ver o boleto", "sim, pode ser").
+- nome_citado: se, junto da resposta, o cliente disse o próprio nome ("sou a Carla e já tenho o projeto"), devolva só o nome; senão null.
 - Preencha com null os campos que não se aplicam.`;
 
 const TOOL = {
@@ -60,7 +76,7 @@ const TOOL = {
   parameters: {
     type: 'object',
     additionalProperties: false,
-    required: ['acao', 'opcao', 'valor', 'itens'],
+    required: ['acao', 'opcao', 'valor', 'itens', 'nome_citado'],
     properties: {
       acao: {
         type: 'string',
@@ -82,6 +98,7 @@ const TOOL = {
       opcao: { type: ['integer', 'null'] },
       valor: { type: ['string', 'null'] },
       itens: { type: ['array', 'null'], items: { type: 'integer' } },
+      nome_citado: { type: ['string', 'null'] },
     },
   },
 };
@@ -153,9 +170,20 @@ export class InterpreterAgent {
     switch (raw.acao) {
       case 'opcao': {
         const value = Number(raw.opcao);
-        return Number.isInteger(value) && ctx.validOptions.includes(value)
-          ? { kind: 'flow', input: { kind: 'opcao', index: value } }
-          : invalid;
+        if (!Number.isInteger(value) || !ctx.validOptions.includes(value))
+          return invalid;
+        const nomeCitado =
+          typeof raw.nome_citado === 'string'
+            ? validarResposta('nome', raw.nome_citado)
+            : null;
+        return {
+          kind: 'flow',
+          input: {
+            kind: 'opcao',
+            index: value,
+            ...(nomeCitado ? { nomeCitado } : {}),
+          },
+        };
       }
       case 'valor': {
         if (node?.tipo !== 'pergunta' || typeof raw.valor !== 'string')
@@ -188,7 +216,12 @@ export class InterpreterAgent {
       case 'pedir_humano':
         return { kind: 'flow', input: { kind: 'humano' } };
       case 'duvida':
-        return { kind: 'duvida' };
+        return ehPergunta(ctx.message)
+          ? { kind: 'duvida' }
+          : {
+              kind: 'flow',
+              input: { kind: 'reapresentar', motivo: 'conversa' },
+            };
       case 'corrigir_nome': {
         const valor =
           typeof raw.valor === 'string'
@@ -203,7 +236,8 @@ export class InterpreterAgent {
       }
       case 'conversa':
         // Pergunta nunca é "conversa": vai para o agente de FAQ, que responde com a base.
-        if (ctx.message.includes('?')) return { kind: 'duvida' };
+        if (ctx.message.includes('?') && !CUMPRIMENTO.test(ctx.message))
+          return { kind: 'duvida' };
         return {
           kind: 'flow',
           input: { kind: 'reapresentar', motivo: 'conversa' },

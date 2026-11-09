@@ -14,6 +14,8 @@ jest.setTimeout(580_000);
 
 type Fala = string | { arquivo: true };
 const A: Fala = { arquivo: true };
+const ATENDENTE = process.env.ATENDENTE === '1';
+const CONFIRMA_NOME = /^(sim|s|isso( mesmo)?|iso|correto|certo|👍|1)$/i;
 
 interface Roteiro {
   nome: string;
@@ -379,6 +381,60 @@ export const ROTEIROS: Roteiro[] = [
   },
   { nome: 'risada', fim: 'BOT', falas: ['oi', 'kkkkkk', '3'] },
   {
+    nome: 'só com palavras, do zero',
+    fim: 'HUMANO',
+    falas: [
+      'bom dia',
+      'queria fazer uma cozinha mas não tenho nada ainda',
+      'Marina Lopes',
+      'é apartamento',
+      'procurei e não achei no site',
+      'pode ser',
+    ],
+  },
+  {
+    nome: 'já chega perguntando a loja',
+    fim: 'BOT',
+    falas: ['boa tarde, onde fica a loja de vocês?', 'agora não, obrigada'],
+  },
+  {
+    nome: 'já chega com nome e projeto',
+    fim: 'HUMANO',
+    falas: [
+      'oi, aqui é o Paulo Ramos, já tenho o projeto da cozinha',
+      A,
+      'pronto',
+    ],
+  },
+  {
+    nome: 'já chega com dúvida',
+    fim: 'HUMANO',
+    falas: [
+      'vocês parcelam?',
+      'entendi, eu tenho só a planta do meu ap',
+      'Luana Prado',
+      A,
+      'é isso',
+      'quero sala e dormitório',
+      'só esses',
+    ],
+  },
+  {
+    nome: 'conversa solta com a vera',
+    fim: 'HUMANO',
+    falas: [
+      'oi tudo bem?',
+      'to reformando meu ap e pensei em fazer uns armários',
+      'nossa ainda nem sei por onde começar',
+      'não tenho projeto não',
+      'me chamo Renato',
+      'apartamento',
+      'como eu acho a planta?',
+      'não achei',
+      'sim',
+    ],
+  },
+  {
     nome: 'educado sem responder',
     fim: 'HUMANO',
     falas: ['oi', 'obrigado', 'tudo bem', 'bom dia', 'valeu'],
@@ -387,12 +443,30 @@ export const ROTEIROS: Roteiro[] = [
 
 suite('conversas longas (OpenAI real + Redator)', () => {
   it('roda os roteiros', async () => {
-    const w: World = build({ live: { apiKey: KEY!, writer: true } });
+    const w: World = build({
+      live: {
+        apiKey: KEY!,
+        writer: true,
+        atendente: ATENDENTE,
+      },
+    });
     const saida: any[] = [];
     const rodar = async (r: Roteiro, i: number) => {
       const id = 9000 + i;
       const turnos: any[] = [];
+      let acabouDeDarNome = false;
       for (const [n, fala] of r.falas.entries()) {
+        // A atendente não pede para confirmar o nome: os roteiros antigos responderiam a uma pergunta que não existe.
+        if (
+          ATENDENTE &&
+          acabouDeDarNome &&
+          typeof fala === 'string' &&
+          CONFIRMA_NOME.test(fala.trim())
+        ) {
+          acabouDeDarNome = false;
+          continue;
+        }
+        const antes = w.convs.get(id)?.flow?.nodeId;
         const opts: any =
           typeof fala === 'string'
             ? {}
@@ -401,6 +475,7 @@ suite('conversas longas (OpenAI real + Redator)', () => {
         const texto = typeof fala === 'string' ? fala : ' ';
         const bot = await w.say(id, texto, opts);
         const c = w.conv(id);
+        acabouDeDarNome = antes === 'nome' && c.flow?.nodeId !== 'nome';
         turnos.push({
           cliente: typeof fala === 'string' ? fala : '[arquivo]',
           bot,
@@ -418,7 +493,7 @@ suite('conversas longas (OpenAI real + Redator)', () => {
     };
     const filtro = process.env.ROTEIRO;
     const fila = ROTEIROS.map((r, i) => [r, i] as const).filter(
-      ([r]) => !filtro || r.nome.includes(filtro),
+      ([r]) => !filtro || new RegExp(filtro).test(r.nome),
     );
     await Promise.all(
       Array.from({ length: Number(process.env.PARALELO ?? 3) }, async () => {

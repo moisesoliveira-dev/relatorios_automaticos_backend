@@ -8,10 +8,21 @@ import {
   WriterOutput,
 } from '../domain/writer.validator';
 import { WriterAgent } from '../agents/writer.agent';
+import { AttendantAgent } from '../agents/attendant.agent';
+import {
+  bolhasDoTurno,
+  intencaoDoSistema,
+  ItemDoTurno,
+  explicarReprovacao,
+  montarTurno,
+  validarTurno,
+} from '../domain/turno';
 import { OpenAiService } from './openai.service';
-import type { Reply } from '../engine/flow.types';
+import type { Reply, SystemMessageKey } from '../engine/flow.types';
+import { DEFAULT_SYSTEM, seedFlows } from '../engine/flow.seed';
 
 type Counter =
+  | 'turno_ok'
   | 'escrita_ok'
   | 'fallback_validacao'
   | 'fallback_erro'
@@ -23,6 +34,10 @@ export interface ComposeContext {
   contactId: number;
   nome: string | null;
   history: Array<{ role: 'cliente' | 'bot'; text: string }>;
+  /** Etapa em que o cliente está depois deste turno (modo atendente). */
+  pendente?: Reply | null;
+  /** O que o cliente já informou. */
+  dados?: Record<string, string>;
 }
 
 const SYSTEM_SPEC: Record<string, keyof typeof SPECS> = {
@@ -41,6 +56,17 @@ const SYSTEM_SPEC: Record<string, keyof typeof SPECS> = {
   redirecionando: 'redirecionando_projetistas',
   redirecionando_com_nome: 'redirecionando_projetistas_com_nome',
 };
+
+/** Textos que ninguém editou. Com a frase pronta na frente, qualquer modelo a repete. */
+const TEXTOS_PADRAO = new Set(
+  seedFlows().flatMap((f) =>
+    f.nos.flatMap((n) => ('texto' in n && n.texto ? [n.texto] : [])),
+  ),
+);
+
+/** A mensagem do sistema continua a padrão? ({nome} já vem trocado no texto.) */
+const sistemaPadrao = (key: SystemMessageKey, texto: string) =>
+  DEFAULT_SYSTEM[key].split('{nome}').every((parte) => texto.includes(parte));
 
 /** Repetir a pergunta depois de um desvio: curta, sem se apresentar nem cumprimentar de novo. */
 function specDeRetomada(spec: MessageSpec): MessageSpec {
@@ -66,6 +92,7 @@ function specDeRetomada(spec: MessageSpec): MessageSpec {
 export class ChatbotHumanizerService {
   private readonly logger = new Logger(ChatbotHumanizerService.name);
   readonly counters: Record<Counter, number> = {
+    turno_ok: 0,
     escrita_ok: 0,
     fallback_validacao: 0,
     fallback_erro: 0,
@@ -79,6 +106,7 @@ export class ChatbotHumanizerService {
     private readonly appConfig: AppConfigService,
     private readonly openai: OpenAiService,
     private readonly writer: WriterAgent,
+    private readonly attendant?: AttendantAgent,
   ) {}
 
   get enabled(): boolean {
@@ -89,6 +117,13 @@ export class ChatbotHumanizerService {
     );
   }
 
+  /** Modo atendente: uma resposta por turno, escrita conhecendo a conversa inteira. */
+  get atendenteAtivo(): boolean {
+    return (
+      this.enabled && !!this.attendant && !!this.appConfig.chatbot.atendente
+    );
+  }
+
   /** Devolve as bolhas a enviar (1 ou 2 por mensagem). */
   async compose(
     ctx: ComposeContext,
@@ -96,10 +131,111 @@ export class ChatbotHumanizerService {
     flowId?: string,
   ): Promise<string[]> {
     if (!replies.length) return [];
+    if (this.atendenteAtivo) return this.composeTurno(ctx, replies, flowId);
     const parts = await Promise.all(
       replies.map((r) => this.composeOne(ctx, r, flowId)),
     );
     return parts.flat();
+  }
+
+  /** Qualquer falha devolve os textos completos do fluxo: o cliente nunca fica sem resposta. */
+  private async composeTurno(
+    ctx: ComposeContext,
+    replies: Reply[],
+    flowId?: string,
+  ): Promise<string[]> {
+    const literal = replies.map((r) => r.texto);
+    if (this.overLimit(ctx.contactId)) {
+      this.counters.fallback_limite++;
+      return literal;
+    }
+    const flow = flowId ? fluxoPorId(flowId) : undefined;
+    const item = (reply: Reply): ItemDoTurno => {
+      const padrao =
+        !!reply.textoOriginal &&
+        TEXTOS_PADRAO.has(reply.textoOriginal) &&
+        !!reply.spec?.objetivo &&
+        !reply.spec.modo &&
+        !/\d{3,}/.test(reply.texto);
+      const base: MessageSpec | undefined = reply.aviso
+        ? {
+            objetivo:
+              reply.aviso === 'arquivo'
+                ? 'Confirmar em poucas palavras que o arquivo chegou e dizer que, quando terminar de mandar, é só avisar.'
+                : 'Confirmar em poucas palavras os itens que o cliente citou e perguntar se é só isso.',
+            pontos: [],
+            maxChars: 200,
+            modo: 'instrucao',
+          }
+        : this.specFor(reply, !!flow?.reescrever);
+      return {
+        reply,
+        spec:
+          reply.sistema && sistemaPadrao(reply.sistema, reply.texto)
+            ? intencaoDoSistema(reply.sistema, base)
+            : padrao && base
+              ? { ...base, modo: 'instrucao' }
+              : base,
+      };
+    };
+    const history = ctx.history ?? [];
+    const recentBot = history
+      .filter((t) => t.role === 'bot')
+      .map((t) => t.text);
+    const turno = montarTurno({
+      itens: replies.map(item),
+      pendente: ctx.pendente ? item(ctx.pendente) : null,
+      primeira: recentBot.length === 0,
+    });
+    if (!turno.pedidos.length) {
+      this.counters.sem_spec++;
+      return literal;
+    }
+
+    const manaus = new Date(Date.now() - 4 * 3600_000).getUTCHours();
+    const ultimaCliente = [...history]
+      .reverse()
+      .find((t) => t.role === 'cliente')?.text;
+    let corrigir: { texto: string; problema: string } | undefined;
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      let out: Awaited<ReturnType<AttendantAgent['run']>> = null;
+      try {
+        out = await this.attendant!.run({
+          turno,
+          nome: ctx.nome,
+          usarNome: !!turno.spec.usaNome,
+          periodo: manaus < 12 ? 'manha' : manaus < 18 ? 'tarde' : 'noite',
+          history,
+          dados: ctx.dados ?? {},
+          guidance: guidanceOf(flow),
+          corrigir,
+        });
+      } catch (error) {
+        this.logger.warn(`Atendente falhou: ${(error as Error).message}`);
+      }
+      if (!out) {
+        this.counters.fallback_erro++;
+        return literal;
+      }
+      const verdict = validarTurno(out, turno, {
+        nome: ctx.nome,
+        recentBot,
+        ultimaCliente,
+      });
+      if (verdict.ok) {
+        this.counters.turno_ok++;
+        return bolhasDoTurno(verdict, turno.literais, turno.literalAbre);
+      }
+      this.rejections[verdict.motivo] =
+        (this.rejections[verdict.motivo] ?? 0) + 1;
+      this.logger.warn(`Resposta da atendente reprovada: ${verdict.motivo}`);
+      corrigir = {
+        texto: [out.abertura, out.fechamento].filter(Boolean).join(' '),
+        problema: explicarReprovacao(verdict.motivo),
+      };
+    }
+    this.counters.fallback_validacao++;
+    return literal;
   }
 
   private overLimit(contactId: number): boolean {

@@ -7,16 +7,15 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { SettingsService } from '../../settings/settings.service';
-import { canonicalNumber, numberKey, parseNumberList } from '../domain/test-mode';
+import {
+  canonicalNumber,
+  numberKey,
+  parseNumberList,
+} from '../domain/test-mode';
 
 export type FieldType = 'boolean' | 'number' | 'text' | 'secret' | 'list';
 export type FieldGroup =
-  | 'geral'
-  | 'ia'
-  | 'comunicacao'
-  | 'limites'
-  | 'atendimento'
-  | 'integracoes';
+  'geral' | 'ia' | 'comunicacao' | 'limites' | 'atendimento' | 'integracoes';
 
 export interface ConfigField {
   key: string;
@@ -76,6 +75,14 @@ export const CONFIG_FIELDS: ConfigField[] = [
     type: 'boolean',
     description:
       'O agente Redator reescreve cada mensagem com contexto. Desligada, vão sempre os textos padrão.',
+  },
+  {
+    key: 'CHATBOT_ATENDENTE',
+    label: 'Conversar como atendente',
+    group: 'comunicacao',
+    type: 'boolean',
+    description:
+      'A IA escreve uma resposta só por vez, lembrando da conversa e sem menu numerado (ele aparece quando o cliente não entende). Desligada, cada etapa vai como no fluxo. Precisa de "Mensagens com voz natural" ligada.',
   },
   {
     key: 'CHATBOT_TYPING_DELAY',
@@ -317,6 +324,8 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return c.testNumbers || null;
       case 'CHATBOT_HUMANIZE':
         return c.humanize;
+      case 'CHATBOT_ATENDENTE':
+        return c.atendente;
       case 'CHATBOT_TYPING_DELAY':
         return c.typingDelay;
       case 'CHATBOT_DEBOUNCE_MS':
@@ -410,7 +419,9 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
         return String(n);
       }
       case 'list': {
-        const lista = Array.isArray(raw) ? raw : String(raw ?? '').split(/[\n,;]+/);
+        const lista = Array.isArray(raw)
+          ? raw
+          : String(raw ?? '').split(/[\n,;]+/);
         const itens = lista.map((x) => String(x).trim()).filter(Boolean);
         const numeros: string[] = [];
         for (const item of itens) {
@@ -460,7 +471,8 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
           } catch {
             url = null;
           }
-          const local = url?.hostname === 'localhost' || url?.hostname === '127.0.0.1';
+          const local =
+            url?.hostname === 'localhost' || url?.hostname === '127.0.0.1';
           if (
             !url ||
             url.username ||
@@ -472,7 +484,10 @@ export class ChatbotRuntimeConfigService implements OnModuleInit {
             );
           return v.replace(/\/+$/, '');
         }
-        if (field.key === 'CHATBOT_CRM_FLUXO' && !['1', '2.1', '2.2'].includes(v))
+        if (
+          field.key === 'CHATBOT_CRM_FLUXO' &&
+          !['1', '2.1', '2.2'].includes(v)
+        )
           throw new BadRequestException(
             'O fluxo padrão do funil deve ser 1, 2.1 ou 2.2.',
           );

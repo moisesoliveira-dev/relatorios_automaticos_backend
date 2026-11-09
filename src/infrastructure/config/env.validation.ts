@@ -34,6 +34,8 @@ export interface EnvConfig {
   CHATBOT_MAX_INVALID: number;
   CHATBOT_MAX_OFF_TOPIC: number;
   CHATBOT_HUMANIZE: boolean;
+  /** A IA conversa como atendente: uma resposta por turno, sem menu numerado. */
+  CHATBOT_ATENDENTE: boolean;
   CHATBOT_TYPING_DELAY: boolean;
   CHATBOT_WRITER_DAILY_LIMIT: number;
   CHATBOT_AI_DAILY_LIMIT: number;
@@ -53,7 +55,11 @@ export interface EnvConfig {
   SMTP_FROM?: string;
 }
 
-function readString(config: Record<string, unknown>, key: string, fallback?: string): string | undefined {
+function readString(
+  config: Record<string, unknown>,
+  key: string,
+  fallback?: string,
+): string | undefined {
   const raw = config[key];
   if (raw === undefined || raw === null || String(raw).trim() === '') {
     return fallback;
@@ -61,7 +67,11 @@ function readString(config: Record<string, unknown>, key: string, fallback?: str
   return String(raw).trim();
 }
 
-function readNumber(config: Record<string, unknown>, key: string, fallback: number): number {
+function readNumber(
+  config: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number {
   const raw = config[key];
   if (raw === undefined || raw === null || String(raw).trim() === '') {
     return fallback;
@@ -72,7 +82,8 @@ function readNumber(config: Record<string, unknown>, key: string, fallback: numb
 
 /** Valida variáveis de ambiente na inicialização (fail-fast em produção). */
 export function validateEnv(config: Record<string, unknown>): EnvConfig {
-  const nodeEnv = (readString(config, 'NODE_ENV', 'development') || 'development') as AppEnvironment;
+  const nodeEnv = (readString(config, 'NODE_ENV', 'development') ||
+    'development') as AppEnvironment;
   const isProduction = nodeEnv === 'production';
   const errors: string[] = [];
 
@@ -93,37 +104,60 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
 
   const placeholder = /^(sua[_-]|change[_-]?me|troque|example|secret$)/i;
   if (isProduction && jwtSecret && placeholder.test(jwtSecret)) {
-    errors.push('JWT_SECRET ainda é um valor de exemplo — gere um segredo aleatório');
+    errors.push(
+      'JWT_SECRET ainda é um valor de exemplo — gere um segredo aleatório',
+    );
   }
   if (isProduction && encryptionKey && placeholder.test(encryptionKey)) {
-    errors.push('ENCRYPTION_KEY ainda é um valor de exemplo — gere uma chave aleatória');
+    errors.push(
+      'ENCRYPTION_KEY ainda é um valor de exemplo — gere uma chave aleatória',
+    );
   }
 
-
-
-  if (isProduction && !readString(config, 'DATABASE_URL') && !readString(config, 'DB_HOST')) {
+  if (
+    isProduction &&
+    !readString(config, 'DATABASE_URL') &&
+    !readString(config, 'DB_HOST')
+  ) {
     errors.push('DATABASE_URL ou DB_* são obrigatórios em produção');
   }
 
   const chatbotEnabled = readString(config, 'CHATBOT_ENABLED') === 'true';
-  const aiEnabled = readString(config, 'CHATBOT_AI_ENABLED', 'true') !== 'false';
+  const aiEnabled =
+    readString(config, 'CHATBOT_AI_ENABLED', 'true') !== 'false';
   if (chatbotEnabled) {
     if (aiEnabled && !readString(config, 'OPENAI_API_KEY')) {
-      errors.push('OPENAI_API_KEY é obrigatório com CHATBOT_ENABLED=true (ou use CHATBOT_AI_ENABLED=false)');
+      errors.push(
+        'OPENAI_API_KEY é obrigatório com CHATBOT_ENABLED=true (ou use CHATBOT_AI_ENABLED=false)',
+      );
     }
-    if (!readString(config, 'GOSAC_BASE_URL') || !readString(config, 'GOSAC_API_KEY')) {
-      errors.push('GOSAC_BASE_URL e GOSAC_API_KEY são obrigatórios com CHATBOT_ENABLED=true');
+    if (
+      !readString(config, 'GOSAC_BASE_URL') ||
+      !readString(config, 'GOSAC_API_KEY')
+    ) {
+      errors.push(
+        'GOSAC_BASE_URL e GOSAC_API_KEY são obrigatórios com CHATBOT_ENABLED=true',
+      );
     }
     if (isProduction && !readString(config, 'GOSAC_WEBHOOK_SECRET')) {
-      errors.push('GOSAC_WEBHOOK_SECRET é obrigatório em produção com CHATBOT_ENABLED=true');
+      errors.push(
+        'GOSAC_WEBHOOK_SECRET é obrigatório em produção com CHATBOT_ENABLED=true',
+      );
     }
-    if (readString(config, 'CHATBOT_CRM_ENABLED') === 'true' && (!readString(config, 'CRM_API_URL') || !readString(config, 'CRM_API_KEY'))) {
-      errors.push('CRM_API_URL e CRM_API_KEY são obrigatórios com CHATBOT_CRM_ENABLED=true');
+    if (
+      readString(config, 'CHATBOT_CRM_ENABLED') === 'true' &&
+      (!readString(config, 'CRM_API_URL') || !readString(config, 'CRM_API_KEY'))
+    ) {
+      errors.push(
+        'CRM_API_URL e CRM_API_KEY são obrigatórios com CHATBOT_CRM_ENABLED=true',
+      );
     }
   }
 
   if (errors.length > 0) {
-    throw new Error(`Configuração de ambiente inválida:\n- ${errors.join('\n- ')}`);
+    throw new Error(
+      `Configuração de ambiente inválida:\n- ${errors.join('\n- ')}`,
+    );
   }
 
   return {
@@ -144,14 +178,21 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     GOSAC_API_KEY: readString(config, 'GOSAC_API_KEY'),
     GOSAC_WEBHOOK_SECRET: readString(config, 'GOSAC_WEBHOOK_SECRET'),
     MASTER_SETUP_TOKEN: readString(config, 'MASTER_SETUP_TOKEN'),
-    DB_SSL_REJECT_UNAUTHORIZED: readString(config, 'DB_SSL_REJECT_UNAUTHORIZED') === 'true',
+    DB_SSL_REJECT_UNAUTHORIZED:
+      readString(config, 'DB_SSL_REJECT_UNAUTHORIZED') === 'true',
     DB_SYNCHRONIZE: readString(config, 'DB_SYNCHRONIZE') === 'true',
     // SSL na conexão com o banco, independente do NODE_ENV. Vazio = segue o NODE_ENV (produção liga).
-    DB_SSL: readString(config, 'DB_SSL') === undefined ? undefined : readString(config, 'DB_SSL') === 'true',
+    DB_SSL:
+      readString(config, 'DB_SSL') === undefined
+        ? undefined
+        : readString(config, 'DB_SSL') === 'true',
     OPENAI_API_KEY: readString(config, 'OPENAI_API_KEY'),
     OPENAI_MODEL: readString(config, 'OPENAI_MODEL', 'gpt-4o-mini')!,
     // Modelos de raciocínio (o-series/gpt-5) não aceitam temperature: deixe OPENAI_TEMPERATURE vazio para omitir.
-    OPENAI_TEMPERATURE: config['OPENAI_TEMPERATURE'] === '' ? undefined : readNumber(config, 'OPENAI_TEMPERATURE', 0),
+    OPENAI_TEMPERATURE:
+      config['OPENAI_TEMPERATURE'] === ''
+        ? undefined
+        : readNumber(config, 'OPENAI_TEMPERATURE', 0),
     OPENAI_TIMEOUT_MS: readNumber(config, 'OPENAI_TIMEOUT_MS', 12000),
     CHATBOT_ENABLED: chatbotEnabled,
     CHATBOT_AI_ENABLED: aiEnabled,
@@ -162,20 +203,43 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     CHATBOT_MAX_OFF_TOPIC: readNumber(config, 'CHATBOT_MAX_OFF_TOPIC', 3),
     // Mensagens com voz natural (agente Redator). Desligue para usar sempre os textos padrão.
     CHATBOT_HUMANIZE: readString(config, 'CHATBOT_HUMANIZE') !== 'false',
+    CHATBOT_ATENDENTE: readString(config, 'CHATBOT_ATENDENTE') !== 'false',
     // Pequena pausa de "digitando" antes de cada bolha (parece conversa de pessoa).
-    CHATBOT_TYPING_DELAY: readString(config, 'CHATBOT_TYPING_DELAY') !== 'false',
-    CHATBOT_WRITER_DAILY_LIMIT: readNumber(config, 'CHATBOT_WRITER_DAILY_LIMIT', 60),
+    CHATBOT_TYPING_DELAY:
+      readString(config, 'CHATBOT_TYPING_DELAY') !== 'false',
+    CHATBOT_WRITER_DAILY_LIMIT: readNumber(
+      config,
+      'CHATBOT_WRITER_DAILY_LIMIT',
+      60,
+    ),
     CHATBOT_AI_DAILY_LIMIT: readNumber(config, 'CHATBOT_AI_DAILY_LIMIT', 40),
-    CHATBOT_HUMAN_IDLE_MINUTES: readNumber(config, 'CHATBOT_HUMAN_IDLE_MINUTES', 60),
+    CHATBOT_HUMAN_IDLE_MINUTES: readNumber(
+      config,
+      'CHATBOT_HUMAN_IDLE_MINUTES',
+      60,
+    ),
     CHATBOT_CRM_ENABLED: readString(config, 'CHATBOT_CRM_ENABLED') === 'true',
-    CHATBOT_CRM_FLUXO: ['1', '2.1', '2.2'].includes(readString(config, 'CHATBOT_CRM_FLUXO') ?? '') ? readString(config, 'CHATBOT_CRM_FLUXO')! : '2.2',
+    CHATBOT_CRM_FLUXO: ['1', '2.1', '2.2'].includes(
+      readString(config, 'CHATBOT_CRM_FLUXO') ?? '',
+    )
+      ? readString(config, 'CHATBOT_CRM_FLUXO')!
+      : '2.2',
     CRM_API_URL: readString(config, 'CRM_API_URL'),
     CRM_API_KEY: readString(config, 'CRM_API_KEY'),
-    CHATBOT_DRIVE_ROOT_FOLDER_ID: readString(config, 'CHATBOT_DRIVE_ROOT_FOLDER_ID'),
-    CHATBOT_FALLBACK_GOSAC_USER_ID: readString(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID')
+    CHATBOT_DRIVE_ROOT_FOLDER_ID: readString(
+      config,
+      'CHATBOT_DRIVE_ROOT_FOLDER_ID',
+    ),
+    CHATBOT_FALLBACK_GOSAC_USER_ID: readString(
+      config,
+      'CHATBOT_FALLBACK_GOSAC_USER_ID',
+    )
       ? readNumber(config, 'CHATBOT_FALLBACK_GOSAC_USER_ID', 0)
       : undefined,
-    CHATBOT_FALLBACK_GOSAC_QUEUE_ID: readString(config, 'CHATBOT_FALLBACK_GOSAC_QUEUE_ID')
+    CHATBOT_FALLBACK_GOSAC_QUEUE_ID: readString(
+      config,
+      'CHATBOT_FALLBACK_GOSAC_QUEUE_ID',
+    )
       ? readNumber(config, 'CHATBOT_FALLBACK_GOSAC_QUEUE_ID', 0)
       : undefined,
     SMTP_HOST: readString(config, 'SMTP_HOST'),

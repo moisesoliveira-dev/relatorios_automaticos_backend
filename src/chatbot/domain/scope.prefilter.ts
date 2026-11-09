@@ -21,6 +21,7 @@ const INJECTION: RegExp[] = [
   /\b(dados|lista|telefones?|cpfs?)\b.{0,25}\b(d[oa]s? )?(ultimo |outros? )?clientes?\b/,
   /\b(liste|listar)\b.{0,20}\bclientes\b/,
   /\bcontato pessoal\b/,
+  /\b(chaves?|tokens?|senhas?)\b.{0,20}\b(api|sistema|servidor|banco)\b/,
   /\b(role|papel)\s*[:=]\s*(system|assistant)/,
 ];
 

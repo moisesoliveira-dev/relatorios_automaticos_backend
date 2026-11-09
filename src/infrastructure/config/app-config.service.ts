@@ -113,18 +113,38 @@ export class AppConfigService {
       enabled: this.bool('CHATBOT_ENABLED', e.CHATBOT_ENABLED),
       aiEnabled: this.bool('CHATBOT_AI_ENABLED', e.CHATBOT_AI_ENABLED),
       testMode: this.bool('CHATBOT_TEST_MODE', e.CHATBOT_TEST_MODE),
-      testNumbers: this.str('CHATBOT_TEST_NUMBERS', e.CHATBOT_TEST_NUMBERS) ?? '',
+      testNumbers:
+        this.str('CHATBOT_TEST_NUMBERS', e.CHATBOT_TEST_NUMBERS) ?? '',
       debounceMs: this.num('CHATBOT_DEBOUNCE_MS', e.CHATBOT_DEBOUNCE_MS),
       maxInvalid: this.num('CHATBOT_MAX_INVALID', e.CHATBOT_MAX_INVALID),
       maxOffTopic: this.num('CHATBOT_MAX_OFF_TOPIC', e.CHATBOT_MAX_OFF_TOPIC),
       humanize: this.bool('CHATBOT_HUMANIZE', e.CHATBOT_HUMANIZE),
+      atendente: this.bool('CHATBOT_ATENDENTE', e.CHATBOT_ATENDENTE),
       typingDelay: this.bool('CHATBOT_TYPING_DELAY', e.CHATBOT_TYPING_DELAY),
-      writerDailyLimit: this.num('CHATBOT_WRITER_DAILY_LIMIT', e.CHATBOT_WRITER_DAILY_LIMIT),
-      aiDailyLimit: this.num('CHATBOT_AI_DAILY_LIMIT', e.CHATBOT_AI_DAILY_LIMIT),
-      humanIdleMinutes: this.num('CHATBOT_HUMAN_IDLE_MINUTES', e.CHATBOT_HUMAN_IDLE_MINUTES),
-      driveRootFolderId: this.str('CHATBOT_DRIVE_ROOT_FOLDER_ID', e.CHATBOT_DRIVE_ROOT_FOLDER_ID),
-      fallbackGosacUserId: this.optNum('CHATBOT_FALLBACK_GOSAC_USER_ID', e.CHATBOT_FALLBACK_GOSAC_USER_ID),
-      fallbackGosacQueueId: this.optNum('CHATBOT_FALLBACK_GOSAC_QUEUE_ID', e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID),
+      writerDailyLimit: this.num(
+        'CHATBOT_WRITER_DAILY_LIMIT',
+        e.CHATBOT_WRITER_DAILY_LIMIT,
+      ),
+      aiDailyLimit: this.num(
+        'CHATBOT_AI_DAILY_LIMIT',
+        e.CHATBOT_AI_DAILY_LIMIT,
+      ),
+      humanIdleMinutes: this.num(
+        'CHATBOT_HUMAN_IDLE_MINUTES',
+        e.CHATBOT_HUMAN_IDLE_MINUTES,
+      ),
+      driveRootFolderId: this.str(
+        'CHATBOT_DRIVE_ROOT_FOLDER_ID',
+        e.CHATBOT_DRIVE_ROOT_FOLDER_ID,
+      ),
+      fallbackGosacUserId: this.optNum(
+        'CHATBOT_FALLBACK_GOSAC_USER_ID',
+        e.CHATBOT_FALLBACK_GOSAC_USER_ID,
+      ),
+      fallbackGosacQueueId: this.optNum(
+        'CHATBOT_FALLBACK_GOSAC_QUEUE_ID',
+        e.CHATBOT_FALLBACK_GOSAC_QUEUE_ID,
+      ),
     };
   }
 
@@ -134,7 +154,10 @@ export class AppConfigService {
     const fluxo = this.str('CHATBOT_CRM_FLUXO', e.CHATBOT_CRM_FLUXO) ?? '2.2';
     return {
       enabled: this.bool('CHATBOT_CRM_ENABLED', e.CHATBOT_CRM_ENABLED),
-      baseUrl: (this.str('CRM_API_URL', e.CRM_API_URL) ?? '').replace(/\/+$/, ''),
+      baseUrl: (this.str('CRM_API_URL', e.CRM_API_URL) ?? '').replace(
+        /\/+$/,
+        '',
+      ),
       apiKey: this.str('CRM_API_KEY', e.CRM_API_KEY) ?? '',
       /** Fluxo do funil usado quando a conversa não indica outro (1, 2.1 ou 2.2). */
       fluxo: ['1', '2.1', '2.2'].includes(fluxo) ? fluxo : '2.2',

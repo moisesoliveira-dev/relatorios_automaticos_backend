@@ -18,6 +18,7 @@ import { DEFAULT_SYSTEM, seedFlows } from '../../engine/flow.seed';
 import { OpenAiService } from '../../services/openai.service';
 import { ChatbotHumanizerService } from '../../services/chatbot-humanizer.service';
 import { WriterAgent } from '../../agents/writer.agent';
+import { AttendantAgent } from '../../agents/attendant.agent';
 import { FakeInbox, FakeLock } from './fakes';
 
 // ───────────────────────── mundo simulado ─────────────────────────
@@ -125,7 +126,7 @@ export function build(
   over: {
     cfg?: any;
     rotation?: any[];
-    live?: { apiKey: string; writer?: boolean };
+    live?: { apiKey: string; writer?: boolean; atendente?: boolean };
   } = {},
 ): World {
   runtimeContent.published = {
@@ -258,7 +259,8 @@ export function build(
           temperature: 0,
           timeoutMs: 20000,
         },
-        modelFor: () => 'gpt-4o-mini',
+        modelFor: (a: string) =>
+          (a === 'writer' && process.env.MODELO_ATENDENTE) || 'gpt-4o-mini',
       }
     : null;
   const liveAi = liveCfg ? new OpenAiService(liveCfg as never) : null;
@@ -293,10 +295,16 @@ export function build(
       ? new ChatbotHumanizerService(
           {
             ...liveCfg,
-            chatbot: { ...cfg.chatbot, humanize: true, writerDailyLimit: 500 },
+            chatbot: {
+              ...cfg.chatbot,
+              humanize: true,
+              writerDailyLimit: 500,
+              atendente: !!over.live?.atendente,
+            },
           } as never,
           liveAi,
           new WriterAgent(liveAi),
+          new AttendantAgent(liveAi),
         )
       : fakeHumanizer;
   const handoff = new ChatbotHandoffService(

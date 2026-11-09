@@ -255,7 +255,8 @@ export type FlowInput =
   | { kind: 'voltar' }
   | { kind: 'recomecar' }
   | { kind: 'ok' }
-  | { kind: 'opcao'; index: number }
+  /** nomeCitado: o cliente disse o próprio nome na mesma mensagem. */
+  | { kind: 'opcao'; index: number; nomeCitado?: string }
   | { kind: 'valor'; valor: string }
   | { kind: 'itens'; indices: number[] }
   | { kind: 'arquivo' }
@@ -281,6 +282,18 @@ export interface Reply {
   sistema?: SystemMessageKey;
   /** A etapa está sendo repetida (depois de um desvio): sem cumprimentar nem se apresentar de novo. */
   retomada?: boolean;
+  /** A etapa em partes, para a atendente falar sem o menu numerado e sem o rodapé. */
+  forma?: FormaDaEtapa;
+  /** Aviso depois de receber um arquivo ou item: a atendente pode dizer com as palavras dela. */
+  aviso?: 'arquivo' | 'itens';
+  /** Texto da etapa como está no fluxo, antes de trocar as {variaveis}. */
+  textoOriginal?: string;
+}
+
+export interface FormaDaEtapa {
+  tipo: NodeType;
+  corpo: string;
+  opcoes: string[];
 }
 
 export type Effect =

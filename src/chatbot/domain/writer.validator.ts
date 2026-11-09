@@ -16,6 +16,8 @@ export interface WriterCheck {
   nome?: string | null;
   /** Últimas mensagens que o bot enviou (evita repetir). */
   recentBot: string[];
+  /** Modo atendente: a mensagem é um turno de conversa, não a reescrita de um texto. */
+  conversa?: boolean;
 }
 
 export type WriterVerdict =
@@ -39,12 +41,15 @@ export function validateWriterOutput(
     typeof raw.fechamento === 'string' && raw.fechamento.trim()
       ? raw.fechamento.replace(/\r/g, '').trim()
       : null;
-  if (abertura.length < 3) return { ok: false, motivo: 'vazio' };
+  // Na conversa, um texto fixo pode abrir a mensagem (a resposta de uma dúvida, por exemplo).
+  const podeSemAbertura = c.conversa && !!c.block && !!fechamento;
+  if (abertura.length < 3 && !podeSemAbertura)
+    return { ok: false, motivo: 'vazio' };
 
   const written = [abertura, fechamento].filter(Boolean).join('\n\n');
   const max = c.spec.maxChars ?? 400;
   if (written.length > max * 1.25) return { ok: false, motivo: 'muito_longo' };
-  if (!c.block && fechamento)
+  if (!c.block && fechamento && !c.conversa)
     return { ok: false, motivo: 'fechamento_sem_bloco' };
 
   // Conteúdo proibido (preço, desconto, link, e-mail...) — reaproveita o filtro das respostas livres
@@ -91,7 +96,7 @@ export function validateWriterOutput(
     return { ok: false, motivo: 'nome_ausente' };
 
   // Sem exagero de emojis
-  if ((written.match(EMOJI_RE) ?? []).length > 3)
+  if ((written.match(EMOJI_RE) ?? []).length > (c.conversa ? 2 : 3))
     return { ok: false, motivo: 'emojis_demais' };
 
   // Variedade: não repetir exatamente uma mensagem recente
@@ -100,7 +105,11 @@ export function validateWriterOutput(
     return { ok: false, motivo: 'repetida' };
 
   // O bot nunca fala de preço, desconto, garantia ou prazo de entrega — quem informa é o atendente
+  // Numa conversa ela pode citar o assunto que o cliente perguntou, desde que seja para passar ao projetista.
+  const encaminha =
+    c.conversa && /projetista|atendente|especialista|equipe/i.test(written);
   if (
+    !encaminha &&
     /\b(pre[çc]o|pre[çc]os|desconto|promo[çc][ãa]o|gr[áa]tis|garantia|prazo de entrega|entregamos em)\b/i.test(
       written,
     )

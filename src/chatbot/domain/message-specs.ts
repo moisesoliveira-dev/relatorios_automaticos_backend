@@ -50,8 +50,20 @@ export const SPECS: Partial<Record<MessageKey, MessageSpec>> = {
   },
   menu_reapresentado: {
     objetivo:
-      'Avisar que o cliente pode escolher outra forma de atendimento se quiser; se não, é só ignorar.',
-    pontos: [p('outra', 'outro', 'escolher', 'selecionar', 'opcao', 'opcoes')],
+      'Dizer, em poucas palavras, que fica à disposição se o cliente precisar de outra coisa.',
+    pontos: [
+      p(
+        'outra',
+        'outro',
+        'escolher',
+        'selecionar',
+        'opcao',
+        'opcoes',
+        'disposicao',
+        'precisar',
+        'chamar',
+      ),
+    ],
     maxChars: 220,
   },
   pedir_nome: {

@@ -23,15 +23,13 @@ import { InterpreterAgent } from './agents/interpreter.agent';
 import { FaqAgent } from './agents/faq.agent';
 import { VerifierAgent } from './agents/verifier.agent';
 import { WriterAgent } from './agents/writer.agent';
+import { AttendantAgent } from './agents/attendant.agent';
 import { ChatbotHumanizerService } from './services/chatbot-humanizer.service';
 import { ToolRegistry } from './tools/tool.registry';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      ChatbotConversation,
-      ChatbotInboxMessage,
-    ]),
+    TypeOrmModule.forFeature([ChatbotConversation, ChatbotInboxMessage]),
     DriveModule,
     SettingsModule,
   ],
@@ -55,6 +53,7 @@ import { ToolRegistry } from './tools/tool.registry';
     FaqAgent,
     VerifierAgent,
     WriterAgent,
+    AttendantAgent,
     ChatbotHumanizerService,
     ToolRegistry,
   ],

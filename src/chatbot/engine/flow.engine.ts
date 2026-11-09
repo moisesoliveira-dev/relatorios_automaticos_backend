@@ -126,6 +126,43 @@ export function prompt(
   }
 }
 
+/** A etapa em partes: o que perguntar e quais caminhos existem (sem numeração nem rodapé). */
+function formaDe(node: FlowNode, state: FlowState): Reply['forma'] {
+  const vars = state.vars;
+  switch (node.tipo) {
+    case 'opcoes':
+    case 'confirmacao':
+      return {
+        tipo: node.tipo,
+        corpo: render(node.texto, vars),
+        opcoes: node.opcoes.map((o) => o.rotulo),
+      };
+    case 'multipla':
+      return {
+        tipo: node.tipo,
+        corpo: render(node.texto, vars),
+        opcoes: [
+          ...node.itens.map((i) => i.rotulo),
+          ...(node.nenhum ? [node.nenhum] : []),
+        ],
+      };
+    case 'arquivos':
+    case 'pergunta':
+      return { tipo: node.tipo, corpo: render(node.texto, vars), opcoes: [] };
+    case 'ferramenta':
+      return {
+        tipo: node.tipo,
+        corpo:
+          typeof node.params?.['texto'] === 'string'
+            ? render(node.params['texto'], vars)
+            : '',
+        opcoes: (state.dinamicas ?? []).map((o) => o.rotulo),
+      };
+    default:
+      return undefined;
+  }
+}
+
 /** Reapresenta a etapa atual (depois de responder uma dúvida, por exemplo). */
 export function promptOf(p: Published, state: FlowState): Reply | null {
   const flow = flowById(p, state.flowId);
@@ -138,6 +175,8 @@ export function promptOf(p: Published, state: FlowState): Reply | null {
     nodeId: node.id,
     spec: renderSpec(node.spec, state.vars),
     retomada: true,
+    forma: formaDe(node, state),
+    textoOriginal: (node as { texto?: string }).texto,
   };
 }
 
@@ -257,6 +296,7 @@ function enter(
         acc.replies.push({
           texto: render(node.texto, state.vars),
           nodeId: node.id,
+          textoOriginal: node.texto,
           spec: renderSpec(node.spec, state.vars),
         });
         id = node.proximo;
@@ -306,6 +346,7 @@ function enter(
           acc.replies.push({
             texto,
             nodeId: node.id,
+            textoOriginal: node.texto,
             spec: renderSpec(node.spec, state.vars),
           });
         acc.effects.push({
@@ -322,6 +363,7 @@ function enter(
           acc.replies.push({
             texto: render(node.texto, state.vars),
             nodeId: node.id,
+            textoOriginal: node.texto,
             spec: renderSpec(node.spec, state.vars),
           });
         return leave(acc, 'menu', flow.id);
@@ -338,6 +380,8 @@ function enter(
           texto: prompt(p, flow, node, next),
           nodeId: node.id,
           spec: renderSpec(node.spec, state.vars),
+          forma: formaDe(node, next),
+          textoOriginal: (node as { texto?: string }).texto,
         });
         return stay(next, acc);
       }
@@ -386,6 +430,7 @@ export function resumeTool(
       texto: prompt(p, flow, node, waiting),
       nodeId: node.id,
       spec: renderSpec(node.spec, state.vars),
+      forma: formaDe(node, waiting),
     });
     return stay(waiting, acc);
   }
@@ -523,7 +568,11 @@ export function stepFlow(
             ...state.vars,
             [node.variavel]: escolhida.valor ?? escolhida.rotulo,
           }
-        : state.vars;
+        : { ...state.vars };
+      if (input.kind === 'opcao' && input.nomeCitado && !vars['nome']) {
+        vars['nome'] = input.nomeCitado;
+        acc.nome = input.nomeCitado;
+      }
       return advance(escolhida.proximo, { vars });
     }
     case 'ferramenta': {
@@ -593,6 +642,7 @@ export function stepFlow(
           ? render(node.textoApos, state.vars)
           : p.sistema.rodape_ok,
         nodeId: node.id,
+        aviso: 'itens',
       });
       return stay({ ...state, escolhidos, invalidos: 0 }, acc);
     }
@@ -603,6 +653,7 @@ export function stepFlow(
             ? render(node.textoApos, state.vars)
             : p.sistema.rodape_ok,
           nodeId: node.id,
+          aviso: 'arquivo',
         });
         return stay(
           { ...state, arquivos: state.arquivos + 1, invalidos: 0 },
@@ -633,6 +684,56 @@ export function stepFlow(
     if (back) acc.replies.push(back);
   }
   return stay({ ...state, invalidos }, acc, { invalido: true });
+}
+
+/** A etapa já tem resposta? Uma pessoa não pergunta de novo o nome que acabou de ouvir. */
+function respostaConhecida(node: FlowNode, state: FlowState): FlowInput | null {
+  const nome = state.vars['nome'];
+  if (!nome) return null;
+  if (
+    node.tipo === 'pergunta' &&
+    (node.variavel === 'nome' || node.validacao === 'nome')
+  )
+    return { kind: 'valor', valor: nome };
+  if (
+    node.tipo === 'confirmacao' &&
+    node.texto.includes('{nome}') &&
+    slug(node.opcoes[0].rotulo).startsWith('sim')
+  )
+    return { kind: 'opcao', index: 1 };
+  return null;
+}
+
+/**
+ * Modo atendente: pula as etapas cuja resposta já é conhecida (pedir e confirmar o nome). Essas
+ * etapas saem do histórico, para que "voltar" não caia nelas e pule de volta para onde estava.
+ */
+export function pularRespondidas(
+  p: Published,
+  result: FlowResult,
+  opts: EngineOptions,
+): FlowResult {
+  let r = result;
+  for (let i = 0; i < 6; i++) {
+    if (!r.state || r.effects.length) return r;
+    const node = currentNode(p, r.state);
+    const input = node && respostaConhecida(node, r.state);
+    if (!node || !input) return r;
+    const prox = stepFlow(p, r.state, input, opts);
+    r = {
+      ...prox,
+      replies: [
+        ...r.replies.filter((x) => x.nodeId !== node.id),
+        ...prox.replies,
+      ],
+      nome: prox.nome ?? r.nome,
+      state: prox.state && {
+        ...prox.state,
+        historico: prox.state.historico.filter((h) => h !== node.id),
+      },
+    };
+  }
+  return r;
 }
 
 /** Casa um texto com uma opção pelo rótulo ou pelas palavras-chave (sem IA). */

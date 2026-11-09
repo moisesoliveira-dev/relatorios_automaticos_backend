@@ -32,6 +32,8 @@ const RESPONDE_ETAPA = new Set<FlowInput['kind']>([
   'corrigir',
 ]);
 
+const normaliza = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
 /**
  * Orquestrador determinístico dos agentes. Quem decide a ordem, o que é aceito e o que acontece
  * em caso de falha é CÓDIGO, não o modelo. Cada agente tem uma função, um schema estrito e sua
@@ -131,11 +133,11 @@ export class AgentOrchestrator {
       return this.done('duvida_sem_base', { kind: 'duvida_sem_resposta' });
 
     const sources = hits.filter((k) => answer.fontes.includes(k.id));
-    const approved = await this.verifier.run(
-      ctx.message,
-      answer.resposta,
-      sources,
-    );
+    // Cópia exata da base não tem o que verificar (e o Verificador recusava até isso).
+    const approved =
+      sources.some((k) =>
+        normaliza(k.text).includes(normaliza(answer.resposta)),
+      ) || (await this.verifier.run(ctx.message, answer.resposta, sources));
     if (!approved)
       return this.done('duvida_reprovada', { kind: 'duvida_sem_resposta' });
 
