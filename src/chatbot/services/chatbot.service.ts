@@ -194,15 +194,51 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     return isAllowedNumber(numero, parseNumberList(c.testNumbers));
   }
 
+  /** Quando o webhook chega mas o bot não age, o log diz por quê (no máximo uma vez por minuto por motivo). */
+  private readonly ignoradoEm = new Map<string, number>();
+  private ignorar(motivo: string, detalhe = ''): void {
+    const agora = Date.now();
+    if (agora - (this.ignoradoEm.get(motivo) ?? 0) < 60_000) return;
+    this.ignoradoEm.set(motivo, agora);
+    this.logger.log(
+      `Webhook do GOSAC ignorado: ${motivo}${detalhe ? ` (${detalhe})` : ''}`,
+    );
+  }
+  private final4(numero: unknown): string {
+    const d = String(numero ?? '').replace(/\D/g, '');
+    return d ? `número terminado em ${d.slice(-4)}` : 'sem número no payload';
+  }
+
   /** Chamado pelo webhook. Nunca lança e nunca bloqueia a resposta HTTP. */
   receive(payload: unknown): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this.ignorar('o chatbot está desligado em Ajustes');
+      return;
+    }
     try {
       const msg = parseWebhook(payload);
-      if (!msg || msg.isGroup) return;
-      if (msg.mediaType && IGNORED_MEDIA.has(msg.mediaType)) return;
+      if (!msg) {
+        const chaves =
+          payload && typeof payload === 'object'
+            ? Object.keys(payload as object)
+                .slice(0, 8)
+                .join(',')
+            : typeof payload;
+        this.ignorar(
+          'o payload não tem contactId e ticketId',
+          `campos: ${chaves}`,
+        );
+        return;
+      }
+      if (msg.isGroup) return this.ignorar('mensagem de grupo');
+      if (msg.mediaType && IGNORED_MEDIA.has(msg.mediaType))
+        return this.ignorar(`tipo de mídia ignorado: ${msg.mediaType}`);
       // Modo teste: só os números da lista (os demais seguem como se o bot não existisse)
-      if (!this.allowedNow(msg.numero)) return;
+      if (!this.allowedNow(msg.numero))
+        return this.ignorar(
+          'modo teste ligado e o número não está na lista',
+          this.final4(msg.numero),
+        );
 
       if (msg.fromMe) {
         // Só interessa saber se um humano assumiu a conversa.
