@@ -115,8 +115,12 @@ export function parseWebhook(payload: any): Inbound | null {
     fromMe: data?.fromMe === true,
     mediaType: data?.mediaType ? String(data.mediaType) : undefined,
     mediaPath: data?.mediaPath || data?.mediaUrl || null,
+    // Só é grupo de WhatsApp quando o próprio GOSAC marca (isGroup). `groupContactId` aparece também em
+    // contatos comuns que pertencem a um grupo de contatos: não indica conversa em grupo.
     isGroup:
-      data?.ticket?.contact?.isGroup === true || data?.groupContactId != null,
+      data?.ticket?.contact?.isGroup === true ||
+      data?.contact?.isGroup === true ||
+      data?.ticket?.isGroup === true,
     ticketCreatedAt: created && !isNaN(created.getTime()) ? created : undefined,
     contactName: data?.contact?.name ?? data?.ticket?.contact?.name,
     numero: data?.contact?.number ?? data?.ticket?.contact?.number,
