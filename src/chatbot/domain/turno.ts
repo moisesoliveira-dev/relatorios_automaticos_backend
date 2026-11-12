@@ -212,10 +212,16 @@ export function montarTurno(input: {
 
     const lista = forma?.opcoes ?? [];
     if (lista.length) {
-      if (listar || lista.length > MAX_OPCOES_EM_FRASE) {
+      // Etapa de opções: a mensagem também sai como opções (a IA escreve a abertura no seu estilo e
+      // a lista numerada vai logo depois), para o cliente ver o formato da etapa e responder com o número.
+      if (
+        listar ||
+        forma?.tipo !== undefined ||
+        lista.length > MAX_OPCOES_EM_FRASE
+      ) {
         literais.push(numerada(lista));
         temLista = true;
-      } else if (forma?.tipo !== 'confirmacao') {
+      } else {
         opcoes.push(...lista.filter((o) => !NAO_CITA(o)));
         chars += 45 * lista.length;
       }
@@ -244,7 +250,7 @@ export function montarTurno(input: {
       saudacao,
       usaNome,
       nomeObrigatorio,
-      perguntar: opcoes.length > 0,
+      perguntar: opcoes.length > 0 || temLista,
       maxChars: Math.min(Math.max(chars, 160), 640),
     },
   };

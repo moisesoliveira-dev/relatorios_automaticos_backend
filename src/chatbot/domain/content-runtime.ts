@@ -19,17 +19,17 @@ export const TONES = {
   acolhedor: {
     label: 'Acolhedor e caloroso',
     prompt:
-      'Tom: muito acolhedor e próximo, como quem recebe bem uma visita. Pode usar diminutivos leves e um emoji a mais.',
+      'Tom: muito acolhedor e próximo, como quem recebe uma visita em casa. Trate por "você", use diminutivos leves (rapidinho, pertinho, cantinho), mostre alegria de ajudar e use 1 ou 2 emojis simpáticos por mensagem (😊 ✨ 🏡). Pode usar até quatro frases curtas. Exemplo do jeito, sem copiar: "Oi, que bom ter você por aqui! 😊 Me conta rapidinho: você já tem o projeto ou vamos começar do zero?"',
   },
   formal: {
     label: 'Formal e elegante',
     prompt:
-      'Tom: formal e elegante, tratamento respeitoso, sem gírias e com no máximo um emoji.',
+      'Tom: formal e elegante. Tratamento respeitoso, frases completas e bem construídas, sem gírias e sem abreviações como "pra" e "tá". Sem emojis. Exemplo do jeito, sem copiar: "Seja bem-vindo. Para que eu possa direcioná-lo corretamente, o senhor já possui o projeto ou deseja iniciar do zero?"',
   },
   objetivo: {
     label: 'Direto e objetivo',
     prompt:
-      'Tom: direto e objetivo. Frases bem curtas, sem rodeios, no máximo um emoji.',
+      'Tom: direto e objetivo. Uma ideia por frase, frases bem curtas, sem rodeios, sem exclamações e sem emojis. Exemplo do jeito, sem copiar: "Olá. Você já tem o projeto, só a planta ou começa do zero?"',
   },
 } as const;
 

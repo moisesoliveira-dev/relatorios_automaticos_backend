@@ -36,13 +36,32 @@ const specDe = (r: Reply) => ({
 });
 
 describe('o turno da atendente', () => {
-  it('opções entram em frase corrida, sem lista nem rodapé', () => {
+  it('etapa de opções sai como opções: abertura da IA e a lista numerada logo depois', () => {
     const t = montarTurno({
       itens: [{ reply: menu, spec: specDe(menu) }],
       primeira: true,
     });
-    expect(t.opcoes).toEqual(opcoes);
-    expect(t.literais).toEqual([]);
+    expect(t.temLista).toBe(true);
+    expect(t.literais).toHaveLength(1);
+    expect(t.literais[0]).toContain('*1* - Já tenho o projeto e quero orçar.');
+    expect(t.literais[0]).toContain('*3* - Quero saber do boleto bancário.');
+    expect(t.opcoes).toEqual([]);
+    expect(t.spec.perguntar).toBe(true);
+  });
+
+  it('confirmação e múltipla escolha também saem como opções', () => {
+    for (const tipo of ['confirmacao', 'multipla'] as const) {
+      const r: Reply = {
+        ...menu,
+        forma: { tipo, corpo: 'Corpo', opcoes: ['Sim', 'Não'] },
+      };
+      const t = montarTurno({
+        itens: [{ reply: r, spec: specDe(r) }],
+        primeira: false,
+      });
+      expect(t.temLista).toBe(true);
+      expect(t.literais[0]).toContain('*2* - Não');
+    }
   });
 
   it('depois de um desvio não repete as opções', () => {
@@ -134,6 +153,8 @@ describe('revisor da atendente', () => {
     itens: [{ reply: menu, spec: specDe(menu) }],
     primeira: true,
   });
+  // Caminhos citados em frase corrida (o revisor continua conferindo que nenhum foi esquecido).
+  const emFrase = { ...primeira, opcoes, literais: [], temLista: false };
   const ok = (abertura: string, t = primeira, ultimaCliente?: string) =>
     validarTurno({ abertura, fechamento: null }, t, {
       recentBot: [],
@@ -146,18 +167,18 @@ describe('revisor da atendente', () => {
     expect(ok(completa).ok).toBe(true);
   });
   it('reprova se esquecer um caminho', () => {
-    expect(ok('Em que posso ajudar? Já tem o projeto ou só a planta?')).toEqual(
-      {
-        ok: false,
-        motivo: expect.stringContaining('opcao_ausente') as string,
-      },
-    );
+    expect(
+      ok('Em que posso ajudar? Já tem o projeto ou só a planta?', emFrase),
+    ).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('opcao_ausente') as string,
+    });
   });
   it('reprova rótulo de opção solto no fim', () => {
     expect(
       validarTurno(
         { abertura: completa, fechamento: 'Quero agendar 📝' },
-        primeira,
+        emFrase,
         {
           recentBot: [],
         },
