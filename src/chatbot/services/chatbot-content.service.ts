@@ -5,7 +5,9 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { AppConfigService } from '../../infrastructure/config/app-config.service';
 import { SettingsService } from '../../settings/settings.service';
+import { ChatbotHumanizerService } from './chatbot-humanizer.service';
 import {
   DEFAULT_KB,
   KbEntry,
@@ -13,7 +15,12 @@ import {
   strip,
 } from '../domain/knowledge-base';
 import { setExtraAllowedNumbers } from '../domain/free-reply.guard';
-import { runtimeContent, TONES, ToneKey } from '../domain/content-runtime';
+import {
+  ConteudoEmUso,
+  runtimeContent,
+  TONES,
+  ToneKey,
+} from '../domain/content-runtime';
 import {
   ContentDoc,
   FlowDoc,
@@ -30,12 +37,14 @@ import { DEFAULT_SYSTEM, SYSTEM_LABELS, seedFlows } from '../engine/flow.seed';
 import { convertLegacyDoc, isLegacyDoc } from '../engine/legacy';
 import {
   parseText,
+  promptOf,
   resumeTool,
   startFlow,
   stepFlow,
 } from '../engine/flow.engine';
 import { slug } from '../engine/text';
 import { ToolRegistry } from '../tools/tool.registry';
+import { emTeste } from './ai-usage.service';
 
 const CATEGORY = 'chatbot_content';
 const K_PUBLISHED = 'CHATBOT_CONTENT_PUBLISHED';
@@ -171,6 +180,8 @@ export class ChatbotContentService implements OnModuleInit {
   constructor(
     private readonly settings: SettingsService,
     private readonly tools: ToolRegistry,
+    private readonly humanizer: ChatbotHumanizerService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -615,11 +626,14 @@ export class ChatbotContentService implements OnModuleInit {
   // ───────────────────────── prévia de um fluxo em rascunho ─────────────────────────
 
   /** Roda um fluxo do rascunho sem enviar nada: devolve o que o bot diria e o novo estado. */
-  previewFlow(input: {
+  async previewFlow(input: {
     fluxos: unknown;
     fluxoId: string;
     estado: FlowState | null;
     texto?: string;
+    /** Passa as mensagens pela IA, com o tom e a reescrita do rascunho (como o cliente receberia). */
+    usarIA?: boolean;
+    conversa?: Array<{ role: 'cliente' | 'bot'; text: string }>;
   }) {
     const doc = this.validate(
       { ...emptyDoc(), fluxos: input.fluxos, kb: null, sistema: {} },
@@ -678,9 +692,48 @@ export class ChatbotContentService implements OnModuleInit {
     }
     for (const e of r.effects)
       if (e.type === 'handoff') efeitos.push('Encaminhar a um atendente');
+
+    const originais = r.replies.map((x) => x.texto);
+    let mensagens = originais;
+    let aviso: string | null = null;
+    const conversa = [...(input.conversa ?? [])];
+    if (input.texto?.trim())
+      conversa.push({
+        role: 'cliente',
+        text: input.texto.trim().slice(0, 600),
+      });
+    if (input.usarIA && r.replies.length) {
+      if (!this.humanizer.enabled) {
+        aviso = !this.appConfig.chatbot.humanize
+          ? 'A opção "Mensagens com voz natural" está desligada em Ajustes > Comunicação: nenhuma mensagem é reescrita, nem no atendimento real.'
+          : 'A IA está desligada, sem chave da OpenAI ou pausada por falhas: o teste mostra os textos exatos das etapas.';
+      } else {
+        // Fluxo que está falando agora (pode ser outro, depois de um "ir para").
+        const falando =
+          doc.fluxos.find((f) => f.id === (r.flowId ?? alvo.id)) ?? alvo;
+        mensagens = await emTeste(() =>
+          this.humanizer.compose(
+            {
+              contactId: -1,
+              nome: r.nome ?? r.state?.vars['nome'] ?? null,
+              history: conversa,
+              pendente: r.state ? promptOf(published, r.state) : null,
+              dados: r.state?.vars ?? {},
+            },
+            r.replies,
+            falando.id,
+            falando,
+          ),
+        );
+      }
+    }
+    conversa.push({ role: 'bot', text: mensagens.join(' ').slice(0, 600) });
     return {
       estado: r.state,
-      mensagens: r.replies.map((x) => x.texto),
+      mensagens,
+      reescrita: mensagens.join('\n') !== originais.join('\n'),
+      aviso,
+      conversa: conversa.slice(-16),
       efeitos,
       saiu: r.saiu,
     };
@@ -697,6 +750,41 @@ export class ChatbotContentService implements OnModuleInit {
         valor: texto,
       }
     );
+  }
+
+  /**
+   * Conteúdo para testar: o que veio da tela (mesmo sem salvar) ou o rascunho salvo, já normalizado
+   * como na publicação. Devolve também o que ainda impediria de publicar.
+   */
+  async conteudoParaTeste(raw?: unknown): Promise<{
+    conteudo: ConteudoEmUso;
+    problemas: string[];
+  }> {
+    let entrada: unknown = raw;
+    if (!entrada) {
+      const draft = await this.read(K_DRAFT);
+      if (!draft) throw new BadRequestException('Não há rascunho para testar.');
+      entrada = draft.doc;
+    }
+    const doc = this.validate(entrada, false);
+    const kb = (doc.kb ?? DEFAULT_KB).map((e) => ({
+      ...e,
+      keywords: [...e.keywords],
+    }));
+    return {
+      problemas: this.problemsOf(doc),
+      conteudo: {
+        kb,
+        guidance: {
+          tone: doc.guidance.tone as ToneKey,
+          instructions: doc.guidance.instructions,
+        },
+        published: {
+          fluxos: JSON.parse(JSON.stringify(doc.fluxos)) as FlowDoc[],
+          sistema: { ...DEFAULT_SYSTEM, ...doc.sistema },
+        },
+      },
+    };
   }
 
   // ───────────────────────── aplicação em memória ─────────────────────────

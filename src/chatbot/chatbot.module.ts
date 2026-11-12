@@ -12,6 +12,7 @@ import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.s
 import { ChatbotController } from './chatbot.controller';
 import { ChatbotService } from './services/chatbot.service';
 import { GosacMessengerService } from './services/gosac-messenger.service';
+import { AiUsageService } from './services/ai-usage.service';
 import { OpenAiService } from './services/openai.service';
 import { ChatbotHandoffService } from './services/chatbot-handoff.service';
 import { ChatbotRotationService } from './services/chatbot-rotation.service';
@@ -38,6 +39,7 @@ import { ToolRegistry } from './tools/tool.registry';
     ChatbotService,
     GosacMessengerService,
     OpenAiService,
+    AiUsageService,
     ChatbotHandoffService,
     ChatbotRotationService,
     ChatbotDriveService,

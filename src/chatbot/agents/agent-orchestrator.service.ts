@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { FlowInput } from '../engine/flow.types';
 import { KbEntry, retrieveKb } from '../domain/knowledge-base';
-import { Guidance } from '../domain/content-runtime';
+import { Guidance, kbEmUso } from '../domain/content-runtime';
 import { prefilter } from '../domain/scope.prefilter';
 import { OpenAiService } from '../services/openai.service';
 import { AgentContext } from './agent.types';
@@ -127,7 +127,7 @@ export class AgentOrchestrator {
     if (!scope)
       return this.done('escopo_indisponivel', { kind: 'duvida_sem_resposta' });
 
-    const hits = kb ? retrieveKb(ctx.message, 3, kb) : retrieveKb(ctx.message);
+    const hits = retrieveKb(ctx.message, 3, kb ?? kbEmUso());
     const answer = await this.faq.run(ctx.message, hits, guidance);
     if (!answer)
       return this.done('duvida_sem_base', { kind: 'duvida_sem_resposta' });

@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -31,6 +32,16 @@ export class SimulateDto {
   @IsOptional()
   @IsBoolean()
   usarIA?: boolean;
+
+  /** Qual conteúdo rodar: o publicado (padrão) ou o rascunho salvo. */
+  @IsOptional()
+  @IsIn(['publicado', 'rascunho'])
+  versao?: 'publicado' | 'rascunho';
+
+  /** Conteúdo completo da tela (mesmo sem salvar): vale no lugar de `versao`. */
+  @IsOptional()
+  @IsObject()
+  rascunho?: Record<string, unknown>;
 }
 
 export class ListConversationsDto {

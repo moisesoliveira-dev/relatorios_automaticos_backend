@@ -9,7 +9,9 @@ import { AppConfigService } from '../../infrastructure/config/app-config.service
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import {
   fluxoPorId,
+  emConteudo,
   guidanceOf,
+  kbEmUso,
   runtimeContent,
   sistema,
 } from '../domain/content-runtime';
@@ -38,6 +40,7 @@ import {
   ChatbotConversation,
 } from '../entities/chatbot-conversation.entity';
 import { ChatbotHumanizerService } from './chatbot-humanizer.service';
+import { ChatbotContentService } from './chatbot-content.service';
 import { ChatbotService } from './chatbot.service';
 import { ToolRegistry } from '../tools/tool.registry';
 import { NODE_TYPES_INFO } from './chatbot-content.service';
@@ -60,6 +63,8 @@ export interface SimulateInput {
   /** Só no começo: entrar direto num fluxo publicado (padrão: o fluxo de início). */
   inicio?: { fluxoId?: string; nome?: string | null };
   usarIA?: boolean;
+  versao?: 'publicado' | 'rascunho';
+  rascunho?: Record<string, unknown>;
 }
 
 /** Estado da conversa simulada (vai e volta do navegador). */
@@ -87,6 +92,7 @@ export class ChatbotAdminService {
     private readonly chatbot: ChatbotService,
     private readonly humanizer: ChatbotHumanizerService,
     private readonly tools: ToolRegistry,
+    private readonly content: ChatbotContentService,
   ) {}
 
   // ───────────────────────── visão geral ─────────────────────────
@@ -377,6 +383,27 @@ export class ChatbotAdminService {
    * Nada é enviado, gravado, criado no Drive nem encaminhado.
    */
   async converse(input: SimulateInput) {
+    if (input.rascunho || input.versao === 'rascunho') {
+      const { conteudo, problemas } = await this.content.conteudoParaTeste(
+        input.rascunho,
+      );
+      const r = await emConteudo(conteudo, () =>
+        this.converseNoConteudo(input),
+      );
+      return {
+        ...r,
+        versao: 'rascunho' as const,
+        problemas,
+      };
+    }
+    return {
+      ...(await this.converseNoConteudo(input)),
+      versao: 'publicado' as const,
+      problemas: [] as string[],
+    };
+  }
+
+  private async converseNoConteudo(input: SimulateInput) {
     const usarIA = input.usarIA !== false;
     const texto = (input.texto ?? '').toString().slice(0, 600).trim();
     const p = runtimeContent.published;
@@ -447,9 +474,9 @@ export class ChatbotAdminService {
             validOptions: validOptions(p, sim.flow),
             rotulos: this.rotulosDe(node, sim.flow),
             message: texto,
-            history: [],
+            history: sim.conversa ?? [],
           },
-          flow?.kb?.length ? flow.kb : KNOWLEDGE_BASE,
+          flow?.kb?.length ? flow.kb : kbEmUso(),
           guidanceOf(flow),
         );
       } else {
@@ -658,10 +685,13 @@ export class ChatbotAdminService {
             ? { numero: idx + 1, titulo: flow.nos[idx].titulo }
             : null,
       },
-      aviso:
-        !this.agents.available && usarIA
-          ? 'A IA não está disponível agora: o teste usa só as regras fixas.'
-          : null,
+      aviso: !usarIA
+        ? null
+        : !this.agents.available
+          ? 'A IA não está disponível agora (desligada, sem chave da OpenAI ou pausada por falhas): o teste usa só as regras fixas.'
+          : !this.appConfig.chatbot.humanize
+            ? 'A opção "Mensagens com voz natural" está desligada em Ajustes > Comunicação: o bot entende texto livre, mas as mensagens vão com o texto exato das etapas, no atendimento real também.'
+            : null,
     };
   }
 

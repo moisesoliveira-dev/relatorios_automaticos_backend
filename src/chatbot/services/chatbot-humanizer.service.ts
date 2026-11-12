@@ -18,7 +18,7 @@ import {
   validarTurno,
 } from '../domain/turno';
 import { OpenAiService } from './openai.service';
-import type { Reply, SystemMessageKey } from '../engine/flow.types';
+import type { FlowDoc, Reply, SystemMessageKey } from '../engine/flow.types';
 import { DEFAULT_SYSTEM, seedFlows } from '../engine/flow.seed';
 
 type Counter =
@@ -129,11 +129,14 @@ export class ChatbotHumanizerService {
     ctx: ComposeContext,
     replies: Reply[],
     flowId?: string,
+    /** Fluxo em rascunho (prévia): vale no lugar do publicado, com o tom e a reescrita dele. */
+    flowOverride?: FlowDoc,
   ): Promise<string[]> {
     if (!replies.length) return [];
-    if (this.atendenteAtivo) return this.composeTurno(ctx, replies, flowId);
+    if (this.atendenteAtivo)
+      return this.composeTurno(ctx, replies, flowId, flowOverride);
     const parts = await Promise.all(
-      replies.map((r) => this.composeOne(ctx, r, flowId)),
+      replies.map((r) => this.composeOne(ctx, r, flowId, flowOverride)),
     );
     return parts.flat();
   }
@@ -143,13 +146,14 @@ export class ChatbotHumanizerService {
     ctx: ComposeContext,
     replies: Reply[],
     flowId?: string,
+    flowOverride?: FlowDoc,
   ): Promise<string[]> {
     const literal = replies.map((r) => r.texto);
     if (this.overLimit(ctx.contactId)) {
       this.counters.fallback_limite++;
       return literal;
     }
-    const flow = flowId ? fluxoPorId(flowId) : undefined;
+    const flow = flowOverride ?? (flowId ? fluxoPorId(flowId) : undefined);
     const item = (reply: Reply): ItemDoTurno => {
       const padrao =
         !!reply.textoOriginal &&
@@ -286,10 +290,11 @@ export class ChatbotHumanizerService {
     ctx: ComposeContext,
     reply: Reply,
     flowId?: string,
+    flowOverride?: FlowDoc,
   ): Promise<string[]> {
     const text = reply.texto;
     if (!this.enabled) return [text];
-    const flow = flowId ? fluxoPorId(flowId) : undefined;
+    const flow = flowOverride ?? (flowId ? fluxoPorId(flowId) : undefined);
     const guidance: Guidance = guidanceOf(flow);
     const base = this.specFor(reply, !!flow?.reescrever);
     const spec = base && reply.retomada ? specDeRetomada(base) : base;

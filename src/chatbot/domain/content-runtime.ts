@@ -3,6 +3,9 @@
  * base de conhecimento. Estado de processo, recarregado a cada publicação e a cada 30 s
  * (ver ChatbotContentService).
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { KbEntry } from './knowledge-base';
+import { KNOWLEDGE_BASE } from './knowledge-base';
 import type {
   FlowDoc,
   FlowGuidance,
@@ -37,13 +40,46 @@ export interface Guidance {
   instructions: string;
 }
 
-export const runtimeContent: {
+/** Um conteúdo completo (fluxos, avisos, tom, base) para rodar no lugar do publicado. */
+export interface ConteudoEmUso {
   published: Published;
   guidance: Guidance;
-} = {
+  kb: KbEntry[];
+}
+
+/**
+ * Dentro de `emConteudo`, tudo que lê o conteúdo (motor, agentes, redator, avisos do sistema) enxerga
+ * este conteúdo em vez do publicado. É o que deixa o teste rodar o rascunho exatamente como o
+ * atendimento real rodaria, sem tocar no que os clientes estão vendo.
+ */
+const emUso = new AsyncLocalStorage<ConteudoEmUso>();
+export const emConteudo = <T>(
+  c: ConteudoEmUso,
+  fn: () => Promise<T>,
+): Promise<T> => emUso.run(c, fn);
+
+const base: { published: Published; guidance: Guidance } = {
   published: { fluxos: [], sistema: { ...DEFAULT_SYSTEM } },
   guidance: { tone: 'padrao', instructions: '' },
 };
+
+export const runtimeContent = {
+  get published(): Published {
+    return emUso.getStore()?.published ?? base.published;
+  },
+  set published(v: Published) {
+    base.published = v;
+  },
+  get guidance(): Guidance {
+    return emUso.getStore()?.guidance ?? base.guidance;
+  },
+  set guidance(v: Guidance) {
+    base.guidance = v;
+  },
+};
+
+/** Base de conhecimento global em uso (a do teste, quando houver; senão a publicada). */
+export const kbEmUso = (): KbEntry[] => emUso.getStore()?.kb ?? KNOWLEDGE_BASE;
 
 export const fluxoPorId = (id: string): FlowDoc | undefined =>
   runtimeContent.published.fluxos.find((f) => f.id === id);

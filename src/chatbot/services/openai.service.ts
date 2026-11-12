@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AppConfigService } from '../../infrastructure/config/app-config.service';
+import { AiUsageService } from './ai-usage.service';
 
 export interface ToolSpec {
   name: string;
@@ -45,7 +46,10 @@ export class OpenAiService {
   private failures: number[] = [];
   private openUntil = 0;
 
-  constructor(private readonly appConfig: AppConfigService) {}
+  constructor(
+    private readonly appConfig: AppConfigService,
+    @Optional() private readonly usage?: AiUsageService,
+  ) {}
 
   get enabled(): boolean {
     return this.appConfig.chatbot.aiEnabled && !!this.appConfig.openai.apiKey;
@@ -139,6 +143,15 @@ export class OpenAiService {
       this.logger.log(
         `agent=${call.agent} model=${model} ${Date.now() - started}ms tokens=${completion.usage?.total_tokens ?? '?'}`,
       );
+      this.usage?.registrar({
+        agente: call.agent,
+        modelo: completion.model || model,
+        entrada: completion.usage?.prompt_tokens ?? 0,
+        cache: completion.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        saida: completion.usage?.completion_tokens ?? 0,
+        ms: Date.now() - started,
+        ok: !!args,
+      });
       if (!args) return null;
       return JSON.parse(args) as T;
     } catch (error) {
@@ -146,8 +159,17 @@ export class OpenAiService {
       const status = (error as { status?: number })?.status;
       if (!status || status >= 500 || [401, 403, 408, 429].includes(status))
         this.recordFailure();
+      this.usage?.registrar({
+        agente: call.agent,
+        modelo: model,
+        entrada: 0,
+        cache: 0,
+        saida: 0,
+        ms: Date.now() - started,
+        ok: false,
+      });
       this.logger.warn(
-        `agent=${call.agent} falhou (${error?.status ?? 'rede'}): ${(error as Error).message?.slice(0, 120)}`,
+        `agent=${call.agent} falhou (${status ?? 'rede'}): ${(error as Error).message?.slice(0, 120)}`,
       );
       return null;
     } finally {

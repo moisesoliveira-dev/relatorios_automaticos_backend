@@ -21,6 +21,7 @@ import { UserRole } from '../users/entities/user.entity';
 import { ChatbotService } from './services/chatbot.service';
 import { ChatbotAdminService } from './services/chatbot-admin.service';
 import { ChatbotContentService } from './services/chatbot-content.service';
+import { AiUsageService, emTeste } from './services/ai-usage.service';
 import { ChatbotRuntimeConfigService } from './services/chatbot-runtime-config.service';
 import { ListConversationsDto, SimulateDto } from './dto/admin.dto';
 import { ToolRegistry } from './tools/tool.registry';
@@ -38,6 +39,7 @@ export class ChatbotController {
     private readonly config: ChatbotRuntimeConfigService,
     private readonly content: ChatbotContentService,
     private readonly tools: ToolRegistry,
+    private readonly usage: AiUsageService,
   ) {}
 
   private who(req: { user?: { email?: string } }): string | null {
@@ -80,7 +82,7 @@ export class ChatbotController {
 
   @Post('simulate')
   simulate(@Body() body: SimulateDto) {
-    return this.admin.converse(body);
+    return emTeste(() => this.admin.converse(body));
   }
 
   /** Fluxos publicados, tipos de etapa, ferramentas e mensagens do sistema (para a tela). */
@@ -136,9 +138,39 @@ export class ChatbotController {
       fluxoId: string;
       estado: FlowState | null;
       texto?: string;
+      usarIA?: boolean;
+      conversa?: Array<{ role: 'cliente' | 'bot'; text: string }>;
     },
   ) {
     return this.content.previewFlow(body);
+  }
+
+  // ───────── gastos com a OpenAI ─────────
+
+  /** Consumo e custo estimado no período (origem: cliente, teste ou todas). */
+  @Get('usage')
+  @SkipThrottle()
+  usageSummary(@Query('dias') dias?: string, @Query('origem') origem?: string) {
+    return this.usage.resumo(
+      Number(dias) || 30,
+      origem === 'teste' || origem === 'todas' ? origem : 'cliente',
+    );
+  }
+
+  /** Corrige a cotação do dólar e os preços por modelo (por 1 milhão de tokens, em dólares). */
+  @Put('usage/prices')
+  async saveUsagePrices(
+    @Body()
+    body: {
+      cotacao?: number;
+      precos?: Record<
+        string,
+        { entrada: number; cache: number; saida: number }
+      >;
+    },
+  ) {
+    await this.usage.salvarPrecos(body ?? {});
+    return this.usage.resumo(30);
   }
 
   @Post('content/publish')
