@@ -198,8 +198,11 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   private readonly ignoradoEm = new Map<string, number>();
   private ignorar(motivo: string, detalhe = ''): void {
     const agora = Date.now();
-    if (agora - (this.ignoradoEm.get(motivo) ?? 0) < 60_000) return;
-    this.ignoradoEm.set(motivo, agora);
+    // Um aviso por minuto para cada motivo e número: o tráfego de outros clientes não pode esconder o seu.
+    const chave = `${motivo}|${detalhe}`;
+    if (agora - (this.ignoradoEm.get(chave) ?? 0) < 60_000) return;
+    if (this.ignoradoEm.size > 500) this.ignoradoEm.clear();
+    this.ignoradoEm.set(chave, agora);
     this.logger.log(
       `Webhook do GOSAC ignorado: ${motivo}${detalhe ? ` (${detalhe})` : ''}`,
     );
