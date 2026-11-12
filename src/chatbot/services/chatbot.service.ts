@@ -233,7 +233,16 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
         );
         return;
       }
-      if (msg.isGroup) return this.ignorar('ignorado, mensagem de grupo');
+      if (msg.isGroup) {
+        const d = ((payload as { data?: unknown })?.data ?? payload) as {
+          groupContactId?: unknown;
+          ticket?: { contact?: { isGroup?: unknown } };
+        };
+        return this.ignorar(
+          'ignorado, mensagem de grupo',
+          `${this.final4(msg.numero)}; contact.isGroup=${JSON.stringify(d?.ticket?.contact?.isGroup)} groupContactId=${JSON.stringify(d?.groupContactId)}`,
+        );
+      }
       if (msg.mediaType && IGNORED_MEDIA.has(msg.mediaType))
         return this.ignorar(`ignorado, tipo de mídia: ${msg.mediaType}`);
       // Modo teste: só os números da lista (os demais seguem como se o bot não existisse)
