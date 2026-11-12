@@ -3,8 +3,7 @@
 #
 # O código é baixado direto do GitHub no build, então só este arquivo é necessário.
 # Os valores vêm de variáveis de ambiente (veja .env.example). Nada secreto fica neste arquivo.
-name: relatorios
-
+# Sem a chave "name:": o gerenciador do Hostinger define o nome do projeto.
 services:
   db:
     image: postgres:16-alpine
