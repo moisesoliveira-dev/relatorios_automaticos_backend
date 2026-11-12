@@ -204,7 +204,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
     if (this.ignoradoEm.size > 500) this.ignoradoEm.clear();
     this.ignoradoEm.set(chave, agora);
     this.logger.log(
-      `Webhook do GOSAC ignorado: ${motivo}${detalhe ? ` (${detalhe})` : ''}`,
+      `Webhook do GOSAC: ${motivo}${detalhe ? ` (${detalhe})` : ''}`,
     );
   }
   private final4(numero: unknown): string {
@@ -215,7 +215,7 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
   /** Chamado pelo webhook. Nunca lança e nunca bloqueia a resposta HTTP. */
   receive(payload: unknown): void {
     if (!this.enabled) {
-      this.ignorar('o chatbot está desligado em Ajustes');
+      this.ignorar('ignorado, o chatbot está desligado em Ajustes');
       return;
     }
     try {
@@ -228,18 +228,18 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
                 .join(',')
             : typeof payload;
         this.ignorar(
-          'o payload não tem contactId e ticketId',
+          'ignorado, o payload não tem contactId e ticketId',
           `campos: ${chaves}`,
         );
         return;
       }
-      if (msg.isGroup) return this.ignorar('mensagem de grupo');
+      if (msg.isGroup) return this.ignorar('ignorado, mensagem de grupo');
       if (msg.mediaType && IGNORED_MEDIA.has(msg.mediaType))
-        return this.ignorar(`tipo de mídia ignorado: ${msg.mediaType}`);
+        return this.ignorar(`ignorado, tipo de mídia: ${msg.mediaType}`);
       // Modo teste: só os números da lista (os demais seguem como se o bot não existisse)
       if (!this.allowedNow(msg.numero))
         return this.ignorar(
-          'modo teste ligado e o número não está na lista',
+          'ignorado, modo teste ligado e o número não está na lista',
           this.final4(msg.numero),
         );
 
@@ -250,8 +250,15 @@ export class ChatbotService implements OnModuleInit, OnModuleDestroy {
             .withLock(msg.contactId, () => this.markHumanActive(msg))
             .catch((error) => this.onError(msg.contactId, error));
         }
-        return;
+        return this.ignorar(
+          'ignorado, mensagem enviada pelo atendente ou pelo próprio bot (fromMe)',
+          this.final4(msg.numero),
+        );
       }
+      this.ignorar(
+        'mensagem aceita, entrando na fila',
+        this.final4(msg.numero),
+      );
       void this.ingest(msg);
     } catch (error) {
       this.logger.error(
