@@ -1,0 +1,7 @@
+# Teste mínimo: só uma imagem pronta, sem build e sem variáveis.
+# Se ESTE arquivo também falhar no Hostinger, o problema é o gerenciador ou a VPS, não o nosso compose.
+services:
+  teste:
+    image: nginx:alpine
+    ports:
+      - "8081:80"
