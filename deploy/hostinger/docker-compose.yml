@@ -1,0 +1,105 @@
+# Sistema completo numa VPS (Hostinger Docker Manager ou qualquer Docker):
+# Postgres + backend + frontend (nginx) + Caddy (HTTPS automático).
+#
+# O código é baixado direto do GitHub no build, então só este arquivo é necessário.
+# Os valores vêm de variáveis de ambiente (veja .env.example). Nada secreto fica neste arquivo.
+name: relatorios
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-relatorios}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE:-relatorios}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-relatorios} -d ${DB_DATABASE:-relatorios}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: https://github.com/moisesoliveira-dev/relatorios_automaticos_backend.git#main
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_SSL: "false"
+      DB_USERNAME: ${DB_USERNAME:-relatorios}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE:-relatorios}
+      FRONTEND_URL: https://${DOMINIO:?defina DOMINIO}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?defina ENCRYPTION_KEY}
+      GOSAC_BASE_URL: ${GOSAC_BASE_URL:-}
+      GOSAC_API_KEY: ${GOSAC_API_KEY:-}
+      GOSAC_WEBHOOK_SECRET: ${GOSAC_WEBHOOK_SECRET:-}
+      PONTTA_API_URL: ${PONTTA_API_URL:-}
+      PONTTA_AUTH_URL: ${PONTTA_AUTH_URL:-}
+      PONTTA_API_KEY: ${PONTTA_API_KEY:-}
+      PONTTA_EMAIL: ${PONTTA_EMAIL:-}
+      PONTTA_PASSWORD: ${PONTTA_PASSWORD:-}
+      PONTTA_BUSINESS_UNIT_ID: ${PONTTA_BUSINESS_UNIT_ID:-}
+      GOOGLE_DRIVE_ENABLED: ${GOOGLE_DRIVE_ENABLED:-false}
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      GOOGLE_DRIVE_DELIVERY_FOLDER_ID: ${GOOGLE_DRIVE_DELIVERY_FOLDER_ID:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${GOOGLE_SERVICE_ACCOUNT_JSON_B64:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      JOBS_ENABLED: ${JOBS_ENABLED:-true}
+      TASK_DIAS_APROVACAO_EXECUTIVO: ${TASK_DIAS_APROVACAO_EXECUTIVO:-}
+      TASK_DIAS_CHECAGEM_MEDIDA: ${TASK_DIAS_CHECAGEM_MEDIDA:-}
+      TASK_DIAS_ENVIO_CLIENTE: ${TASK_DIAS_ENVIO_CLIENTE:-}
+      TASK_DIAS_PROJETO_EXECUTIVO: ${TASK_DIAS_PROJETO_EXECUTIVO:-}
+      TASK_DIAS_REVISAO_PROJETO: ${TASK_DIAS_REVISAO_PROJETO:-}
+    volumes:
+      - assets:/app/src/assets
+
+  frontend:
+    build:
+      context: https://github.com/moisesoliveira-dev/relatorios_automaticos_frontend.git#main
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      PORT: "80"
+      BACKEND_URL: http://backend:3000/api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+    # O Caddyfile é gerado aqui para não depender de outro arquivo.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        printf '%s {\n\tencode gzip\n\treverse_proxy frontend:80\n}\n' "$$DOMINIO" > /etc/caddy/Caddyfile
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  assets:
+  caddy_data:
+  caddy_config:
